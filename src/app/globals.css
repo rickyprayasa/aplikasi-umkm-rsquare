@@ -132,3 +132,40 @@
     }
   }
 }
+
+@media print {
+  /* Atur halaman cetak agar tidak memiliki margin sama sekali */
+  @page {
+    margin: 0mm;
+    size: auto; /* Biarkan ukuran kertas mengikuti konten jika memungkinkan */
+  }
+
+  /* Hapus margin dan padding dari body saat mencetak */
+  body {
+    margin: 0;
+    padding: 0;
+  }
+
+  /* Sembunyikan semua elemen di body secara default */
+  body > * {
+    visibility: hidden;
+  }
+
+  /* Tampilkan HANYA elemen struk dan semua isinya */
+  .printable-receipt, .printable-receipt * {
+    visibility: visible;
+  }
+
+  /* Posisikan struk di pojok kiri atas dan pastikan ukurannya pas */
+  .printable-receipt {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 58mm; /* Atau 80mm sesuai printer Anda */
+    font-size: 8pt;
+    color: #000;
+    
+    /* Tambahan untuk mencegah halaman ekstra */
+    height: auto;
+  }
+}
