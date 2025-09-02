@@ -3,11 +3,11 @@
 
 import { useState, useEffect } from "react"
 import type { Session } from '@supabase/supabase-js'
-import { Calendar as CalendarIcon, DollarSign, Receipt, Star, Plus, User, Menu, X, Package, TrendingUp, FileText, BarChart3, ArrowUp, ArrowDown, Settings, Users, Bell, HelpCircle, Download, FileSpreadsheet, Printer, CreditCard, Shield, Gift, Tag, ArrowRight } from "lucide-react" // Tambahkan ArrowRight
+import { Calendar as CalendarIcon, DollarSign, Receipt, Star, Plus, User, Menu, X, Package, TrendingUp, FileText, BarChart3, ArrowUp, ArrowDown, Settings, Users, Bell, HelpCircle, Download, FileSpreadsheet, Printer, CreditCard, Shield, Gift, Tag, ArrowRight, ArrowLeft } from "lucide-react"
 import { format } from "date-fns"
 import { DateRange } from "react-day-picker"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle,CardDescription } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, BarChart, Bar } from "recharts"
@@ -40,6 +40,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import ReceiptPreviewDialog from '@/components/ReceiptPreviewDialog';
 
 
 
@@ -63,7 +64,7 @@ export default function HomePage() {
   const [dashboardStats, setDashboardStats] = useState({ revenue: 0, count: 0 })
   const [loadingDashboard, setLoadingDashboard] = useState(true)
   
-  const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [isProductDialogOpen, setIsProductDialogOpen] = useState(false);
   const [productFormData, setProductFormData] = useState<any>({ id: null, nama_produk: '', harga: '', stok: '', kategori: '' })
   const [isTransactionDialogOpen, setIsTransactionDialogOpen] = useState(false)
   
@@ -103,8 +104,14 @@ export default function HomePage() {
   const [notifications, setNotifications] = useState<any[]>([]);
   const [loadingNotifications, setLoadingNotifications] = useState(true);
   const [unreadCount, setUnreadCount] = useState(0);
-  
 
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [selectedTransaction, setSelectedTransaction] = useState<any>(null);
+  const [newlyAddedProductId, setNewlyAddedProductId] = useState<number | null>(null);
+  const [viewingCustomer, setViewingCustomer] = useState<any>(null); // <-- STATE BARU
+  const [customerHistory, setCustomerHistory] = useState<any[]>([]); // <-- STATE BARU
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  
   const MINIMUM_STOCK = 15;
 
   const getStatus = (stock: number) => {
@@ -117,6 +124,29 @@ export default function HomePage() {
 
   const [customerSummary, setCustomerSummary] = useState({ total_customers: 0, new_last_30_days: 0, inactive_customers: 0 });
   const [loadingSummary, setLoadingSummary] = useState(true);
+
+
+
+const handleViewCustomerHistory = async (customer: any) => {
+  setViewingCustomer(customer);
+  setLoadingHistory(true);
+  const { data, error } = await supabase
+    .rpc('get_transactions_by_customer', { p_customer_id: customer.id });
+  
+  if (data) {
+    setCustomerHistory(data);
+  }
+  if (error) {
+    console.error("Error fetching customer history:", error);
+    setCustomerHistory([]);
+  }
+  setLoadingHistory(false);
+};
+
+  const handleReprintClick = (transaction: any) => {
+  setSelectedTransaction(transaction);
+  setIsPreviewOpen(true);
+};
   
   async function getCustomerSummary() {
     setLoadingSummary(true);
@@ -365,30 +395,40 @@ async function getCustomers() {
     e.preventDefault();
     if (!session) return alert("Anda harus login.");
 
-    const customerData = {
-      name: customerFormData.name,
-      email: customerFormData.email,
-      phone: customerFormData.phone,
-      user_id: session.user.id
-    };
+  const { id, name, email, phone } = customerFormData;
+  const customerData = { name, email, phone, user_id: session.user.id };
 
-    const { error } = await supabase.from('customers').insert([customerData]);
 
-    if (error) {
-      alert('Gagal menyimpan pelanggan: ' + error.message);
-    } else {
-      alert('Pelanggan berhasil ditambahkan!');
-      setIsCustomerDialogOpen(false);
-      setCustomerFormData({ id: null, name: '', email: '', phone: '' });
-      getCustomers(); 
-      getCustomerSummary();
-    }
-  };
+  let error;
+  if (id) {
+    // Jika ada ID, lakukan UPDATE
+    ({ error } = await supabase.from('customers').update(customerData).eq('id', id));
+  } else {
+    // Jika tidak ada ID, lakukan INSERT
+    ({ error } = await supabase.from('customers').insert([customerData]));
+  }
+    
+
+  if (error) {
+    alert('Gagal menyimpan pelanggan: ' + error.message);
+  } else {
+    alert(`Pelanggan berhasil ${id ? 'diperbarui' : 'ditambahkan'}!`);
+    setIsCustomerDialogOpen(false);
+    setCustomerFormData({ id: null, name: '', email: '', phone: '' });
+    getCustomers(); 
+    getCustomerSummary();
+  }
+};
 
   const handleAddCustomerClick = () => {
     setCustomerFormData({ id: null, name: '', email: '', phone: '' });
     setIsCustomerDialogOpen(true);
   }; 
+
+const handleEditCustomerClick = (customer: any) => {
+  setCustomerFormData(customer);
+  setIsCustomerDialogOpen(true);
+};  
 
   const handleAddStockClick = (product: any) => {
     setSelectedProduct(product);
@@ -420,27 +460,38 @@ async function getCustomers() {
     setProductFormData((prev: any) => ({ ...prev, [id]: value }))
   }
 
-  const handleFormSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!session) return alert("Anda harus login.");
-    
-    const { id, nama_produk, harga, stok, kategori } = productFormData
-    const productData = { nama_produk, harga: Number(harga), stok: Number(stok), user_id: session.user.id, kategori }
-    
-    let error;
-    if (id) {
-      ({ error } = await supabase.from('products').update(productData).eq('id', id))
+const handleFormSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+  if (!session) return alert("Anda harus login.");
+   
+  const { id, nama_produk, harga, stok, kategori } = productFormData;
+  const productData = { nama_produk, harga: Number(harga), stok: Number(stok), user_id: session.user.id, kategori };
+   
+  if (id) {
+    // Logika untuk UPDATE tidak berubah
+    const { error } = await supabase.from('products').update(productData).eq('id', id);
+    if (error) {
+      alert('Error: ' + error.message);
     } else {
-      ({ error } = await supabase.from('products').insert([productData]))
+      alert(`Produk berhasil diperbarui!`);
+      setIsProductDialogOpen(false);
+      getProducts();
+      getProductSummary();
     }
-
-  if (error) {
-    alert('Error: ' + error.message);
   } else {
-    alert(`Produk berhasil ${id ? 'diperbarui' : 'ditambahkan'}!`);
-    setIsDialogOpen(false);
-    getProducts();
-    getProductSummary(); // Panggil ini agar ringkasan ter-update
+    // --- PERUBAHAN DI SINI UNTUK INSERT ---
+    // Tambahkan .select().single() untuk mendapatkan data produk yang baru dibuat
+    const { data: newProduct, error } = await supabase.from('products').insert([productData]).select().single();
+
+    if (error) {
+      alert('Error: ' + error.message);
+    } else if (newProduct) {
+      alert(`Produk berhasil ditambahkan!`);
+      setNewlyAddedProductId(newProduct.id); // Simpan ID produk baru ke state
+      setIsProductDialogOpen(false);
+      getProducts();
+      getProductSummary();
+    }
   }
 };
   
@@ -449,12 +500,12 @@ const handleEditClick = (product: any) => {
     ...product, // Salin semua data produk yang ada
     kategori: product.kategori || '', // <-- TAMBAHKAN BARIS INI
   });
-  setIsDialogOpen(true);
+  setIsProductDialogOpen(true);
 };
   
   const handleAddClick = () => {
     setProductFormData({ id: null, nama_produk: '', harga: '', stok: '', kategori: '' })
-    setIsDialogOpen(true)
+    setIsProductDialogOpen(true)
   }
 
   const handleDeleteProduct = async (productId: number) => {
@@ -625,27 +676,27 @@ const handleExportPdf = () => {
 const handleSaveTransaction = async (transactionData: TransactionData) => {
   if (!session) return alert("Sesi tidak ditemukan.");
 
-  // Panggil fungsi RPC dengan nama key yang sudah disamakan
-  const { error } = await supabase.rpc('create_transaction_and_update_stock', {
-    total_amount_in: transactionData.total_amount, // <-- Ganti nama
-    items_in: transactionData.items,               // <-- Ganti nama
-    owner_id_in: session.user.id,                  // <-- Ganti nama
+  const { data, error } = await supabase.rpc('create_transaction_and_update_stock', {
+    total_amount_in: transactionData.total_amount,
+    items_in: transactionData.items,
+    owner_id_in: session.user.id,
     customer_id_in: transactionData.customer_id
   });
 
   if (error) {
     alert("Gagal menyimpan transaksi: " + error.message);
+    return null;
   } else {
-    alert("Transaksi berhasil disimpan dan stok telah diupdate!");
-    setIsTransactionDialogOpen(false);
     fetchDashboardData(); 
     getProducts();
-    refreshProfileData(); 
-    // Panggil fetch notif count setelah transaksi berhasil
-    const { data } = await supabase.rpc('get_unread_notification_count');
-    if (typeof data === 'number') {
-      setUnreadCount(data);
+    refreshProfileData();
+    const { data: countData } = await supabase.rpc('get_unread_notification_count');
+    if (typeof countData === 'number') {
+      setUnreadCount(countData);
     }
+
+    // Sekarang 'data' dijamin adalah objek JSON yang kita mau
+    return data; 
   }
 };
 
@@ -791,7 +842,13 @@ const renderDashboard = () => {
             <DialogTrigger asChild>
               <Button className="bg-black hover:bg-gray-800 text-white px-8 py-6 text-lg font-bold rounded-2xl transition-all duration-300 shadow-2xl hover:shadow-3xl hover:-translate-y-2" size="lg"><Plus className="w-5 h-5 mr-3" />Transaksi Baru</Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-xl bg-white"><DialogHeader><DialogTitle className="text-black">Buat Transaksi Baru</DialogTitle><DialogDescription>Pilih produk dan tentukan jumlahnya.</DialogDescription></DialogHeader><NewTransactionDialog products={products} customers={customers} onSave={handleSaveTransaction} onClose={() => setIsTransactionDialogOpen(false)} /></DialogContent>
+            <DialogContent className="sm:max-w-2xl bg-white"><DialogHeader><DialogTitle className="text-black">Buat Transaksi Baru</DialogTitle><DialogDescription>Pilih produk dan tentukan jumlahnya.</DialogDescription></DialogHeader>
+            <NewTransactionDialog 
+              products={products} 
+              customers={customers} 
+              profile={profile} // <-- Teruskan data profil
+              onSave={handleSaveTransaction} 
+              onClose={() => setIsTransactionDialogOpen(false)} /></DialogContent>
           </Dialog>
           <Button onClick={() => setActiveSection('inventory')} variant="outline" className="border-2 border-orange-500 text-orange-600 hover:bg-orange-50 px-8 py-6 text-lg font-bold rounded-2xl transition-all duration-300 shadow-lg hover:shadow-xl hover:-translate-y-1 bg-transparent" size="lg"><Package className="w-5 h-5 mr-3" />Kelola Stok</Button>
           <Button onClick={() => setActiveSection('reports')} variant="outline" className="border-2 border-gray-500 text-gray-600 hover:bg-gray-50 px-8 py-6 text-lg font-bold rounded-2xl transition-all duration-300 shadow-lg hover:shadow-xl hover:-translate-y-1 bg-transparent" size="lg"><FileText className="w-5 h-5 mr-3" />Lihat Laporan</Button>
@@ -810,6 +867,7 @@ const renderDashboard = () => {
                 <TableHead>ID Transaksi</TableHead>
                 <TableHead>Detail Item</TableHead>
                 <TableHead className="text-right">Total</TableHead>
+                <TableHead className="text-right">Aksi</TableHead>
               </TableRow>
             </TableHeader>
 <TableBody>
@@ -832,6 +890,11 @@ const renderDashboard = () => {
         <TableCell>{t.nomor_faktur || `#${t.id}`}</TableCell>
         <TableCell>{t.items.map((item: any) => `${item.nama_produk} (x${item.quantity})`).join(', ')}</TableCell>
         <TableCell className="text-right font-bold">Rp {t.total_amount.toLocaleString('id-ID')}</TableCell>
+        <TableCell className="text-right"> {/* <-- SEL BARU */}
+        <Button variant="outline" size="sm" onClick={() => handleReprintClick(t)} className="text-purple-600 border-purple-300 hover:bg-purple-50 hover:text-purple-700">
+          Cetak
+        </Button>
+      </TableCell>
       </TableRow>
     ))
   )}
@@ -908,7 +971,7 @@ const renderInventory = () => {
             { title: "Stok Rendah", value: loadingProducts ? '...' : products.filter(p => p.stok < 15 && p.stok > 0).length, note: "Perlu restok", color: "orange" },
             { title: "Stok Habis", value: loadingProducts ? '...' : products.filter(p => p.stok === 0).length, note: "Segera restok", color: "red" }
           ].map(card => (
-            <Card key={card.title} className={`bg-white border-2 border-${card.color}-200 shadow-xl hover:shadow-2xl transition-all duration-300 hover:-translate-y-2`}>
+            <Card key={card.title} className={`bg-white border-2 border-${card.color}-200 shadow-xl hover:shadow-2xl transition-all duration-300 cursor-pointer`}>
               <CardHeader><CardTitle className={`text-sm font-bold text-${card.color}-800 uppercase tracking-wider`}>{card.title}</CardTitle></CardHeader>
               <CardContent><div className={`text-3xl font-black text-${card.color}-600`}>{card.value}</div><p className={`text-${card.color}-600`}>{card.note}</p></CardContent>
             </Card>
@@ -982,10 +1045,10 @@ const renderProducts = () => (
 
         {/* --- KARTU SUMMARY SEKARANG DINAMIS SEMUA --- */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <Card className="bg-white border-2 border-gray-200 shadow-xl"><CardHeader><CardTitle className="text-sm font-bold text-gray-800 uppercase">Total Produk</CardTitle></CardHeader><CardContent><div className="text-3xl font-black text-black">{loadingProductSummary ? '...' : productSummary?.total_products}</div><p className="text-gray-600">Produk aktif</p></CardContent></Card>
-          <Card className="bg-white border-2 border-gray-200 shadow-xl"><CardHeader><CardTitle className="text-sm font-bold text-gray-800 uppercase">Kategori</CardTitle></CardHeader><CardContent><div className="text-3xl font-black text-orange-600">{loadingProductSummary ? '...' : productSummary?.distinct_categories}</div><p className="text-gray-600">Kategori produk</p></CardContent></Card>
-          <Card className="bg-white border-2 border-gray-200 shadow-xl"><CardHeader><CardTitle className="text-sm font-bold text-gray-800 uppercase">Produk Baru</CardTitle></CardHeader><CardContent><div className="text-3xl font-black text-black">{loadingProductSummary ? '...' : productSummary?.new_this_month}</div><p className="text-gray-600">Bulan ini</p></CardContent></Card>
-          <Card className="bg-white border-2 border-gray-200 shadow-xl"><CardHeader><CardTitle className="text-sm font-bold text-gray-800 uppercase">Rata-rata Harga</CardTitle></CardHeader><CardContent><div className="text-3xl font-black text-black">{loadingProductSummary ? '...' : `Rp ${Math.round(productSummary?.avg_price || 0).toLocaleString('id-ID')}`}</div><p className="text-gray-600">Per produk</p></CardContent></Card>
+          <Card className="bg-white border-2 border-gray-200 shadow-xl hover:shadow-2xl transition-all duration-300 cursor-pointer hover:border-black"><CardHeader><CardTitle className="text-sm font-bold text-gray-800 uppercase">Total Produk</CardTitle></CardHeader><CardContent><div className="text-3xl font-black text-black">{loadingProductSummary ? '...' : productSummary?.total_products}</div><p className="text-gray-600">Produk aktif</p></CardContent></Card>
+          <Card className="bg-white border-2 border-gray-200 shadow-xl hover:shadow-2xl transition-all duration-300 cursor-pointer hover:border-orange-400"><CardHeader><CardTitle className="text-sm font-bold text-gray-800 uppercase">Kategori</CardTitle></CardHeader><CardContent><div className="text-3xl font-black text-orange-600">{loadingProductSummary ? '...' : productSummary?.distinct_categories}</div><p className="text-gray-600">Kategori produk</p></CardContent></Card>
+          <Card className="bg-white border-2 border-gray-200 shadow-xl hover:shadow-2xl transition-all duration-300 cursor-pointer hover:border-green-400"><CardHeader><CardTitle className="text-sm font-bold text-gray-800 uppercase">Produk Baru</CardTitle></CardHeader><CardContent><div className="text-3xl font-black text-black">{loadingProductSummary ? '...' : productSummary?.new_this_month}</div><p className="text-gray-600">Bulan ini</p></CardContent></Card>
+          <Card className="bg-white border-2 border-gray-200 shadow-xl hover:shadow-2xl transition-all duration-300 cursor-pointer hover:border-blue-400"><CardHeader><CardTitle className="text-sm font-bold text-gray-800 uppercase">Rata-rata Harga</CardTitle></CardHeader><CardContent><div className="text-3xl font-black text-black">{loadingProductSummary ? '...' : `Rp ${Math.round(productSummary?.avg_price || 0).toLocaleString('id-ID')}`}</div><p className="text-gray-600">Per produk</p></CardContent></Card>
         </div>
       {/* ^^^ ------------------------------------- ^^^ */}
 
@@ -994,13 +1057,30 @@ const renderProducts = () => (
           <h4 className="text-xl font-bold text-black mb-6">Daftar Produk</h4>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {loadingProducts ? <p>Memuat produk...</p> : products.map((product) => (
-              <Card key={product.id} className="border border-gray-200 hover:shadow-lg transition-all duration-200 flex flex-col">
-                <CardContent className="p-4 flex flex-col flex-grow">
+              <Card 
+                key={product.id} 
+                // Saat kartu diklik, hapus status "baru"
+                onClick={() => newlyAddedProductId === product.id && setNewlyAddedProductId(null)}
+                className="border border-gray-200 hover:shadow-lg transition-all duration-200 flex flex-col relative"
+              >
+                {/* --- INDIKATOR PRODUK BARU --- */}
+                {product.id === newlyAddedProductId && (
+                  <span className="absolute top-2 right-2 bg-green-500 text-white text-xs font-bold px-2 py-1 rounded-full animate-pulse">
+                    Baru!
+                  </span>
+                )}
+            <CardContent className="p-4 flex flex-col flex-grow">
                   <div className="flex-grow">
-                    <div className="flex justify-between items-start mb-3">
-                      <h5 className="font-bold text-black">{product.nama_produk}</h5>
-                      <span className="text-sm bg-gray-100 text-gray-800 px-2 py-1 rounded-full">Stok: {product.stok}</span>
+                    <div className="flex justify-between items-start mb-2">
+                      <h5 className="font-bold text-black pr-4">{product.nama_produk}</h5>
+                      {/* --- TAMPILKAN KATEGORI DI SINI --- */}
+                      {product.kategori && (
+                        <span className="text-xs bg-gray-100 text-gray-800 px-2 py-1 rounded-full whitespace-nowrap">
+                          {product.kategori}
+                        </span>
+                      )}
                     </div>
+                    <p className="text-gray-600 text-sm mb-3">Stok: {product.stok}</p>
                     <p className="text-lg font-bold text-orange-600 mb-4">
                       Rp {product.harga.toLocaleString('id-ID')}
                     </p>
@@ -1040,8 +1120,63 @@ const renderProducts = () => (
 )
   
 
-  const renderCustomers = () => (
-   <>
+const renderCustomers = () => {
+  // Tampilan Detail Pelanggan & Riwayat Transaksi
+  if (viewingCustomer) {
+    return (
+      <div className="space-y-6">
+        <Button variant="ghost" onClick={() => setViewingCustomer(null)} className="mb-4">
+          <ArrowLeft className="w-4 h-4 mr-2" />
+          Kembali ke Daftar Pelanggan
+        </Button>
+        
+        <Card className="bg-white border-2 border-gray-200 shadow-xl">
+          <CardHeader>
+            <CardTitle className="text-2xl">{viewingCustomer.name}</CardTitle>
+            <CardDescription>{viewingCustomer.email || 'Tidak ada email'} | {viewingCustomer.phone || 'Tidak ada telepon'}</CardDescription>
+          </CardHeader>
+        </Card>
+        
+        <div className="bg-white rounded-2xl border-2 border-gray-200 shadow-2xl">
+          <div className="p-8">
+            <h4 className="text-xl font-bold text-black mb-6">Riwayat Transaksi</h4>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Waktu</TableHead>
+                    <TableHead>ID Transaksi</TableHead>
+                    <TableHead>Detail Item</TableHead>
+                    <TableHead className="text-right">Total</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {loadingHistory ? (
+                    <TableRow><TableCell colSpan={4} className="text-center">Memuat riwayat...</TableCell></TableRow>
+                  ) : customerHistory.length === 0 ? (
+                    <TableRow><TableCell colSpan={4} className="text-center">Pelanggan ini belum memiliki transaksi.</TableCell></TableRow>
+                  ) : (
+                    customerHistory.map(t => (
+                      <TableRow key={t.id}>
+                        <TableCell>{new Date(t.created_at).toLocaleString('id-ID')}</TableCell>
+                        <TableCell>{t.nomor_faktur || `#${t.id}`}</TableCell>
+                        <TableCell>{t.items.map((item: any) => `${item.nama_produk} (x${item.quantity})`).join(', ')}</TableCell>
+                        <TableCell className="text-right font-bold">Rp {t.total_amount.toLocaleString('id-ID')}</TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Tampilan Daftar Pelanggan (Default)
+  return (
+    <>
       <div className="space-y-8">
         <div className="flex justify-between items-center">
           <h3 className="text-2xl font-bold text-black tracking-tight">Manajemen Pelanggan</h3>
@@ -1053,15 +1188,15 @@ const renderProducts = () => (
         
        {/* VVV --- KARTU SUMMARY DENGAN TAMBAHAN KARTU BARU --- VVV */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <Card className="bg-white border-2 border-gray-200 shadow-xl">
+          <Card className="bg-white border-2 border-gray-200 shadow-xl hover:shadow-2xl transition-all duration-300 cursor-pointer hover:border-green-400">
             <CardHeader><CardTitle className="text-sm font-bold text-gray-800 uppercase">Total Pelanggan</CardTitle></CardHeader>
             <CardContent><div className="text-3xl font-black text-black">{loadingSummary ? '...' : customerSummary.total_customers}</div><p className="text-green-600 font-medium">pelanggan terdaftar</p></CardContent>
           </Card>
-          <Card className="bg-white border-2 border-gray-200 shadow-xl">
+          <Card className="bg-white border-2 border-gray-200 shadow-xl hover:shadow-2xl transition-all duration-300 cursor-pointer hover:border-orange-400">
             <CardHeader><CardTitle className="text-sm font-bold text-gray-800 uppercase">Pelanggan Baru</CardTitle></CardHeader>
             <CardContent><div className="text-3xl font-black text-orange-600">{loadingSummary ? '...' : customerSummary.new_last_30_days}</div><p className="text-gray-600">30 hari terakhir</p></CardContent>
           </Card>
-          <Card className="bg-white border-2 border-red-200 shadow-xl">
+          <Card className="bg-white border-2 border-red-200 shadow-xl hover:shadow-2xl transition-all duration-300 cursor-pointer hover:border-red-400">
             <CardHeader><CardTitle className="text-sm font-bold text-red-800 uppercase">Pelanggan Tidak Aktif</CardTitle></CardHeader>
             <CardContent><div className="text-3xl font-black text-red-600">{loadingSummary ? '...' : customerSummary.inactive_customers}</div><p className="text-red-600">Perlu dihubungi</p></CardContent>
           </Card>
@@ -1079,17 +1214,27 @@ const renderProducts = () => (
                     <TableHead>Email</TableHead>
                     <TableHead>Telepon</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Aksi</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {customers.length === 0 ? <TableRow><TableCell colSpan={4} className="text-center text-gray-500 py-8">Belum ada pelanggan.</TableCell></TableRow> :
                     customers.map((customer) => (
                       <TableRow key={customer.id} className="border-gray-200 hover:bg-gray-50">
-                        <TableCell className="font-semibold">{customer.name}</TableCell>
+                       <TableCell>
+                        <button onClick={() => handleViewCustomerHistory(customer)} className="font-semibold text-orange-600 hover:underline">
+                          {customer.name}
+                        </button>
+                      </TableCell>
                         <TableCell>{customer.email || '-'}</TableCell>
                         <TableCell>{customer.phone || '-'}</TableCell>
                         <TableCell>
                         <span className={`px-2 py-1 rounded-full text-xs font-semibold ${customer.status === 'Aktif' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>{customer.status}</span></TableCell>
+                        <TableCell className="text-right">
+                        <Button variant="outline" size="sm" onClick={() => handleEditCustomerClick(customer)}>
+                          Edit
+                        </Button>
+                      </TableCell>
                       </TableRow>
                     ))}
                 </TableBody>
@@ -1099,32 +1244,27 @@ const renderProducts = () => (
         </div>
     </div>
        {/* --- DIALOG UNTUK TAMBAH PELANGGAN --- */}
-      <Dialog open={isCustomerDialogOpen} onOpenChange={setIsCustomerDialogOpen}>
-        <DialogContent className="bg-white">
-          <DialogHeader><DialogTitle>Tambah Pelanggan Baru</DialogTitle></DialogHeader>
-          <form onSubmit={handleSaveCustomer}>
-            <div className="grid gap-4 py-4">
-              <div className="space-y-2">
-                <Label htmlFor="name">Nama Pelanggan</Label>
-                <Input id="name" value={customerFormData.name} onChange={handleCustomerInputChange} required />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="email">Email (Opsional)</Label>
-                <Input id="email" type="email" value={customerFormData.email} onChange={handleCustomerInputChange} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="phone">Telepon (Opsional)</Label>
-                <Input id="phone" value={customerFormData.phone} onChange={handleCustomerInputChange} />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button type="submit" className="bg-orange-500 hover:bg-orange-600 text-white">Simpan Pelanggan</Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-    </>
-  )
+    <Dialog open={isCustomerDialogOpen} onOpenChange={setIsCustomerDialogOpen}>
+      <DialogContent className="bg-white">
+        {/* --- JUDUL DIALOG DINAMIS --- */}
+        <DialogHeader><DialogTitle>{customerFormData.id ? 'Edit Pelanggan' : 'Tambah Pelanggan Baru'}</DialogTitle></DialogHeader>
+        <form onSubmit={handleSaveCustomer}>
+          <div className="grid gap-4 py-4">
+            <div className="space-y-2"><Label htmlFor="name">Nama Pelanggan</Label><Input id="name" value={customerFormData.name} onChange={handleCustomerInputChange} required /></div>
+            <div className="space-y-2"><Label htmlFor="email">Email (Opsional)</Label><Input id="email" type="email" value={customerFormData.email} onChange={handleCustomerInputChange} /></div>
+            <div className="space-y-2"><Label htmlFor="phone">Telepon (Opsional)</Label><Input id="phone" value={customerFormData.phone} onChange={handleCustomerInputChange} /></div>
+          </div>
+          <DialogFooter>
+            <Button type="submit" className="bg-orange-500 hover:bg-orange-600 text-white">
+              {customerFormData.id ? 'Simpan Perubahan' : 'Simpan Pelanggan'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  </>
+  );
+};
 
 const renderReports = () => {
   // FUNGSI INI DILENGKAPI AGAR TOMBOL SHORTCUT BERFUNGSI
@@ -1307,7 +1447,7 @@ const renderReports = () => {
             </div>
             <div className="overflow-x-auto">
               <Table>
-                <TableHeader><TableRow className="border-gray-200"><TableHead>Waktu</TableHead><TableHead>ID Transaksi</TableHead><TableHead>Detail Item</TableHead><TableHead className="text-right">Total</TableHead></TableRow></TableHeader>
+                <TableHeader><TableRow className="border-gray-200"><TableHead>Waktu</TableHead><TableHead>ID Transaksi</TableHead><TableHead>Detail Item</TableHead><TableHead className="text-right">Total</TableHead><TableHead className="text-right">Aksi</TableHead></TableRow></TableHeader>
                 <TableBody>
                   {loadingReport ? <TableRow><TableCell colSpan={4} className="text-center">Memuat...</TableCell></TableRow> :
                     reportData.map((t) => (
@@ -1316,6 +1456,11 @@ const renderReports = () => {
                         <TableCell>#{t.nomor_faktur}</TableCell>
                         <TableCell>{t.items.map((item: any) => `${item.nama_produk} (x${item.quantity})`).join(', ')}</TableCell>
                         <TableCell className="text-right font-bold">Rp {t.total_amount.toLocaleString('id-ID')}</TableCell>
+                        <TableCell className="text-right"> {/* <-- SEL BARU */}
+                        <Button variant="outline" size="sm" onClick={() => handleReprintClick(t)} className="text-purple-600 border-purple-300 hover:bg-purple-50 hover:text-purple-700">
+                        Cetak
+                      </Button>
+                      </TableCell>
                       </TableRow>
                     ))}
                 </TableBody>
@@ -1466,9 +1611,9 @@ const renderNotifications = () => {
       <h3 className="text-2xl font-bold text-black tracking-tight">Notifikasi & Peringatan</h3>
       
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <Card className="bg-white border-2 border-red-200 shadow-xl"><CardHeader><CardTitle className="text-sm font-bold text-red-800 uppercase">Peringatan Kritis</CardTitle></CardHeader><CardContent><div className="text-3xl font-black text-red-600">{loadingNotifications ? '...' : criticalCount}</div><p className="text-red-600">Perlu perhatian segera</p></CardContent></Card>
-        <Card className="bg-white border-2 border-orange-200 shadow-xl"><CardHeader><CardTitle className="text-sm font-bold text-orange-800 uppercase">Peringatan</CardTitle></CardHeader><CardContent><div className="text-3xl font-black text-orange-600">{loadingNotifications ? '...' : warningCount}</div><p className="text-orange-600">Perlu tindakan</p></CardContent></Card>
-        <Card className="bg-white border-2 border-blue-200 shadow-xl"><CardHeader><CardTitle className="text-sm font-bold text-blue-800 uppercase">Info</CardTitle></CardHeader><CardContent><div className="text-3xl font-black text-blue-600">{loadingNotifications ? '...' : infoCount}</div><p className="text-blue-600">Informasi umum</p></CardContent></Card>
+        <Card className="bg-white border-2 border-red-200 shadow-xl hover:shadow-2xl transition-all duration-300 cursor-pointer hover:border-red-400"><CardHeader><CardTitle className="text-sm font-bold text-red-800 uppercase">Peringatan Kritis</CardTitle></CardHeader><CardContent><div className="text-3xl font-black text-red-600">{loadingNotifications ? '...' : criticalCount}</div><p className="text-red-600">Perlu perhatian segera</p></CardContent></Card>
+        <Card className="bg-white border-2 border-orange-200 shadow-xl hover:shadow-2xl transition-all duration-300 cursor-pointer hover:border-orange-400"><CardHeader><CardTitle className="text-sm font-bold text-orange-800 uppercase">Peringatan</CardTitle></CardHeader><CardContent><div className="text-3xl font-black text-orange-600">{loadingNotifications ? '...' : warningCount}</div><p className="text-orange-600">Perlu tindakan</p></CardContent></Card>
+        <Card className="bg-white border-2 border-blue-200 shadow-xl hover:shadow-2xl transition-all duration-300 cursor-pointer hover:border-blue-400"><CardHeader><CardTitle className="text-sm font-bold text-blue-800 uppercase">Info</CardTitle></CardHeader><CardContent><div className="text-3xl font-black text-blue-600">{loadingNotifications ? '...' : infoCount}</div><p className="text-blue-600">Informasi umum</p></CardContent></Card>
       </div>
 
       <div className="bg-white rounded-2xl border-2 border-gray-200 shadow-2xl">
@@ -1748,7 +1893,7 @@ const renderSettings = () => {
           <main className="flex-1 p-10 overflow-y-auto">{renderContent()}
 
     {/* Dialog universal untuk Tambah & Edit Produk diletakkan di sini */}
-    <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+    <Dialog open={isProductDialogOpen} onOpenChange={setIsProductDialogOpen}>
       <DialogContent className="sm:max-w-[425px] bg-white border-gray-200">
         <DialogHeader>
           <DialogTitle className="text-black">{productFormData.id ? 'Edit Produk' : 'Tambah Produk Baru'}</DialogTitle>
@@ -1804,6 +1949,13 @@ const renderSettings = () => {
           </Dialog>
 
           </main>
+
+        <ReceiptPreviewDialog
+      isOpen={isPreviewOpen}
+      onClose={() => setIsPreviewOpen(false)}
+      transaction={selectedTransaction}
+      profile={profile}
+    />
         </div>
         {sidebarOpen && (<div className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden" onClick={() => setSidebarOpen(false)}></div>)}
       </div>
