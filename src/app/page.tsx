@@ -3,7 +3,7 @@
 
 import { useState, useEffect } from "react"
 import type { Session } from '@supabase/supabase-js'
-import { Calendar as CalendarIcon, DollarSign, Receipt, Star, Plus, User, Menu, X, Package, TrendingUp, FileText, BarChart3, ArrowUp, ArrowDown, Settings, Users, Bell, HelpCircle, Download, FileSpreadsheet, Printer, CreditCard, Shield, Gift, Tag, ArrowRight, ArrowLeft } from "lucide-react"
+import { Calendar as CalendarIcon, DollarSign, Receipt, Star, Plus, User, Menu, X, Package, TrendingUp, FileText, BarChart3, ArrowUp, ArrowDown, Settings, Users, Bell, HelpCircle, Download, FileSpreadsheet, Printer, CreditCard, Shield, Gift, Tag, Medal, ArrowLeft, Loader2, Lightbulb } from "lucide-react"
 import { format } from "date-fns"
 import { DateRange } from "react-day-picker"
 import { Button } from "@/components/ui/button"
@@ -32,6 +32,10 @@ import autoTable from 'jspdf-autotable';
 import UserProfile from '@/components/UserProfile';
 import StoreProfile from '@/components/StoreProfile';
 import SecuritySettings from '@/components/SecuritySettings';
+import LoyaltySettings from '@/components/LoyaltySettings';
+import { Progress } from "@/components/ui/progress";
+import { useMemo } from 'react';
+import { Textarea } from "@/components/ui/textarea";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -41,6 +45,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import ReceiptPreviewDialog from '@/components/ReceiptPreviewDialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 
 
 
@@ -108,9 +119,18 @@ export default function HomePage() {
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [selectedTransaction, setSelectedTransaction] = useState<any>(null);
   const [newlyAddedProductId, setNewlyAddedProductId] = useState<number | null>(null);
-  const [viewingCustomer, setViewingCustomer] = useState<any>(null); // <-- STATE BARU
-  const [customerHistory, setCustomerHistory] = useState<any[]>([]); // <-- STATE BARU
+  const [viewingCustomer, setViewingCustomer] = useState<any>(null);
+  const [customerHistory, setCustomerHistory] = useState<any[]>([]);
+  const [customerLoyaltyCount, setCustomerLoyaltyCount] = useState(0);
   const [loadingHistory, setLoadingHistory] = useState(false);
+
+  const [searchTerm, setSearchTerm] = useState('');
+  const [tierFilter, setTierFilter] = useState('Semua');
+  const [customerNotes, setCustomerNotes] = useState('');
+  const [savingNotes, setSavingNotes] = useState(false);
+  const [analyticsPeriod, setAnalyticsPeriod] = useState(7);
+  const [salesPrediction, setSalesPrediction] = useState<any[]>([]);
+  const [restockRecommendations, setRestockRecommendations] = useState<any[]>([]);
   
   const MINIMUM_STOCK = 15;
 
@@ -125,23 +145,123 @@ export default function HomePage() {
   const [customerSummary, setCustomerSummary] = useState({ total_customers: 0, new_last_30_days: 0, inactive_customers: 0 });
   const [loadingSummary, setLoadingSummary] = useState(true);
 
+    useEffect(() => {
+    if (viewingCustomer) {
+        setCustomerNotes(viewingCustomer.notes || '');
+    }
+}, [viewingCustomer]);
 
+
+const customerStats = useMemo(() => {
+  if (!customerHistory || customerHistory.length === 0) {
+    return { totalSpending: 0, favoriteProduct: '-', averageSpending: 0 };
+  }
+
+  const totalSpending = customerHistory.reduce((sum, t) => sum + t.total_amount, 0);
+  const averageSpending = totalSpending / customerHistory.length;
+
+  const allItems = customerHistory.flatMap(t => t.items);
+  const productCounts = allItems.reduce((acc, item) => {
+    acc[item.nama_produk] = (acc[item.nama_produk] || 0) + item.quantity;
+    return acc;
+  }, {} as Record<string, number>);
+
+
+  const favoriteProduct = Object.entries(productCounts).sort(
+    (a, b) => (b[1] as number) - (a[1] as number)
+  )[0]?.[0] || '-';
+
+
+  return { totalSpending, favoriteProduct, averageSpending };
+}, [customerHistory]);
+
+const getCustomerTier = (transactionCount: number) => {
+  const tiers = {
+    bronze: { name: 'Bronze', threshold: 0, color: 'bg-orange-200 text-orange-900', iconColor: 'text-orange-600' },
+    silver: { name: 'Silver', threshold: 10, color: 'bg-gray-200 text-gray-800', iconColor: 'text-gray-600' },
+    gold: { name: 'Gold', threshold: 30, color: 'bg-yellow-100 text-yellow-900', iconColor: 'text-yellow-500' },
+  };
+
+  if (transactionCount >= tiers.gold.threshold) {
+    return { ...tiers.gold, icon: Medal, nextTier: null, progress: 100 };
+  }
+  if (transactionCount >= tiers.silver.threshold) {
+    const progress = ((transactionCount - tiers.silver.threshold) / (tiers.gold.threshold - tiers.silver.threshold)) * 100;
+    return { ...tiers.silver, icon: Medal, nextTier: tiers.gold, progress: progress, transactionsForNextTier: tiers.gold.threshold - tiers.silver.threshold, currentProgressInTier: transactionCount - tiers.silver.threshold };
+  }
+  const progress = (transactionCount / tiers.silver.threshold) * 100;
+  return { ...tiers.bronze, icon: Medal, nextTier: tiers.silver, progress: progress, transactionsForNextTier: tiers.silver.threshold, currentProgressInTier: transactionCount };
+};
+
+const filteredCustomers = useMemo(() => {
+  if (!customers) return [];
+
+  return customers
+    .filter(customer => {
+      if (tierFilter === 'Semua') return true;
+      const tier = getCustomerTier(customer.transaction_count || 0);
+      return tier.name === tierFilter;
+    })
+    .filter(customer => {
+      const search = searchTerm.toLowerCase();
+      if (!search) return true;
+      return (
+        customer.name?.toLowerCase().includes(search) ||
+        customer.email?.toLowerCase().includes(search) ||
+        customer.phone?.toLowerCase().includes(search)
+      );
+    });
+}, [customers, searchTerm, tierFilter]);
 
 const handleViewCustomerHistory = async (customer: any) => {
   setViewingCustomer(customer);
   setLoadingHistory(true);
-  const { data, error } = await supabase
-    .rpc('get_transactions_by_customer', { p_customer_id: customer.id });
+  setCustomerHistory([]); // Kosongkan dulu
+  setCustomerLoyaltyCount(0); // Reset
+
+  // Panggil kedua fungsi (ambil riwayat & hitung jumlah) secara bersamaan
+  const [historyResult, countResult] = await Promise.all([
+    supabase.rpc('get_transactions_by_customer', { p_customer_id: customer.id }),
+    supabase.rpc('get_customer_transaction_count', { p_customer_id: customer.id })
+  ]);
   
-  if (data) {
-    setCustomerHistory(data);
+  if (historyResult.data) {
+    setCustomerHistory(historyResult.data);
   }
-  if (error) {
-    console.error("Error fetching customer history:", error);
-    setCustomerHistory([]);
+  if (historyResult.error) {
+    console.error("Error fetching customer history:", historyResult.error);
   }
+  
+  if (typeof countResult.data === 'number') {
+    setCustomerLoyaltyCount(countResult.data);
+  }
+  if (countResult.error) {
+    console.error("Error fetching customer transaction count:", countResult.error);
+  }
+  
   setLoadingHistory(false);
 };
+
+const handleSaveCustomerNotes = async () => {
+  if (!viewingCustomer) return;
+  setSavingNotes(true);
+  const { error } = await supabase
+    .from('customers')
+    .update({ notes: customerNotes })
+    .eq('id', viewingCustomer.id);
+
+  if (error) {
+    alert('Gagal menyimpan catatan: ' + error.message);
+  } else {
+    alert('Catatan berhasil disimpan!');
+    // Perbarui data customer di state utama agar sinkron
+    setCustomers(customers.map(c => 
+      c.id === viewingCustomer.id ? { ...c, notes: customerNotes } : c
+    ));
+  }
+  setSavingNotes(false);
+};
+
 
   const handleReprintClick = (transaction: any) => {
   setSelectedTransaction(transaction);
@@ -170,7 +290,19 @@ const handleViewCustomerHistory = async (customer: any) => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => { setSession(session) })
     return () => subscription.unsubscribe()
   }, [])
- 
+
+  
+async function fetchSalesPrediction() {
+  const { data, error } = await supabase.rpc('get_daily_sales_avg');
+  if (data) {
+    setSalesPrediction(data);
+  }
+  if (error) {
+    console.error("Error fetching sales prediction:", error);
+  }
+}
+
+
 async function getNotifications() {
   setLoadingNotifications(true);
   const { data, error } = await supabase
@@ -197,29 +329,29 @@ const handleMarkAsRead = async (id: number) => {
   }
 };
   
- useEffect(() => {
-    const fetchInitialData = async () => {
-      if (!session) return;
+useEffect(() => {
+  const fetchInitialData = async () => {
+    if (!session) return;
 
-      const getUnreadCount = async () => {
-        const { data, error } = await supabase.rpc('get_unread_notification_count');
-        if (error) console.error("Error fetching unread count:", error);
-        else if (typeof data === 'number') {
-          setUnreadCount(data);
-        }
-      };
-
-      await Promise.all([
-        fetchDashboardData(currentPage), // Data untuk kartu & tabel dashboard
-        getProducts(),                  // Data produk untuk dialog transaksi, dll.
-        getCustomers(),                 // Data pelanggan untuk dialog transaksi, dll.
-        getUnreadCount()                // Jumlah notifikasi untuk badge di sidebar
-      ]);
+    const getUnreadCount = async () => {
+      const { data, error } = await supabase.rpc('get_unread_notification_count');
+      if (error) console.error("Error fetching unread count:", error);
+      else if (typeof data === 'number') setUnreadCount(data);
     };
 
-    fetchInitialData();
-    
-  }, [session, currentPage]);
+    // Panggil semua data yang dibutuhkan saat aplikasi pertama kali dimuat
+    await Promise.all([
+      fetchDashboardData(currentPage),
+      getProducts(),
+      getCustomers(),
+      refreshProfileData(),
+      getUnreadCount()
+    ]);
+  };
+
+  fetchInitialData();
+  
+}, [session, currentPage]);
 
 
   async function getProductSummary() {
@@ -250,68 +382,77 @@ const handleMarkAsRead = async (id: number) => {
     fetchAllData();
   }, [session, currentPage]);
   
-  async function fetchDashboardData(page = 1) {
-    setLoadingDashboard(true)
-    const from = (page - 1) * ITEMS_PER_PAGE;
-    const to = from + ITEMS_PER_PAGE - 1;
+async function fetchDashboardData(page = 1) {
+  setLoadingDashboard(true);
+  
+  const { data: recoData, error: recoError } = await supabase.rpc('get_restock_recommendations');
+  if (recoData) {
+    setRestockRecommendations(recoData);
+  }
+  if (recoError) {
+    console.error("Error fetching recommendations:", recoError);
+  }
 
-    const { data: transData, error: transError, count } = await supabase
-      .from('transactions')
-      .select('*', { count: 'exact' })
-      .order('created_at', { ascending: false })
-      .range(from, to)
+  const from = (page - 1) * ITEMS_PER_PAGE;
+  const to = from + ITEMS_PER_PAGE - 1;
 
-    if (transData) {
-      setTransactions(transData)
-      if (count) setTotalTransactions(count)
-      
-    // Ambil SEMUA transaksi hari ini untuk statistik
-    const today = new Date().toISOString().slice(0, 10);
-    const { data: todayTransData } = await supabase
-      .from('transactions')
-      .select('total_amount, items')
-      .gte('created_at', `${today}T00:00:00.000Z`)
-      .lte('created_at', `${today}T23:59:59.999Z`)
+  const { data: transData, error: transError, count } = await supabase
+    .from('transactions')
+    .select('*', { count: 'exact' })
+    .order('created_at', { ascending: false })
+    .range(from, to);
 
-    if (todayTransData) {
-      const totalRevenue = todayTransData.reduce((sum, t) => sum + t.total_amount, 0)
-      const transactionCount = todayTransData.length
-      setDashboardStats({ revenue: totalRevenue, count: transactionCount })
+  if (transData) {
+    setTransactions(transData);
+    if (count) setTotalTransactions(count);
+  }
+  if (transError) console.error("Error fetching transactions: ", transError);
 
-     // --- LOGIKA PENGHITUNGAN PRODUK TERLARIS YANG BENAR ---
-      const productCounts: { [key: string]: number } = {};
-      todayTransData.forEach(t => {
-        t.items.forEach((item: any) => {
-          productCounts[item.nama_produk] = (productCounts[item.nama_produk] || 0) + item.quantity;
-        });
+  const today = new Date().toISOString().slice(0, 10);
+  const { data: todayTransData } = await supabase
+    .from('transactions')
+    .select('total_amount, items')
+    .gte('created_at', `${today}T00:00:00.000Z`)
+    .lte('created_at', `${today}T23:59:59.999Z`);
+
+  if (todayTransData) {
+    const totalRevenue = todayTransData.reduce((sum, t) => sum + t.total_amount, 0);
+    const transactionCount = todayTransData.length;
+    setDashboardStats({ revenue: totalRevenue, count: transactionCount });
+
+    const productCounts: { [key: string]: number } = {};
+    todayTransData.forEach(t => {
+      t.items.forEach((item: any) => {
+        productCounts[item.nama_produk] = (productCounts[item.nama_produk] || 0) + item.quantity;
       });
-      
-      const best = Object.entries(productCounts).sort((a, b) => b[1] - a[1])[0];
-      if (best) {
-        setBestSeller({ name: best[0], count: best[1] });
-      } else {
-        setBestSeller({ name: '-', count: 0 });
-      }
+    });
+    const best = Object.entries(productCounts).sort((a, b) => b[1] - a[1])[0];
+    if (best) {
+      setBestSeller({ name: best[0], count: best[1] });
+    } else {
+      setBestSeller({ name: '-', count: 0 });
     }
   }
-    const { data: compData } = await supabase.rpc('get_dashboard_comparison');
-    if (compData) setComparisonData(compData);
-    
-    if (transError) console.error("Error fetching transactions: ", transError)
-    setLoadingDashboard(false)
-  }
+  
+  setLoadingDashboard(false);
+}
 
   // Fungsi fetchAnalyticsData sekarang memanggil satu fungsi super
-  async function fetchAnalyticsData() {
-    setLoadingAnalytics(true);
-    const { data, error } = await supabase.rpc('get_all_analytics');
-    if (data) {
-      setAnalyticsData(data);
-    }
-    if (error) console.error("Error fetching analytics data: ", error);
-    setLoadingAnalytics(false);
-  }
+async function fetchAnalyticsData() {
+  setLoadingAnalytics(true);
+  // Panggil fungsi baru dengan periode dari state
+  const { data, error } = await supabase.rpc('get_analytics_by_period', { days_period: analyticsPeriod });
+  if (data) setAnalyticsData(data);
+  if (error) console.error("Error fetching analytics data: ", error);
+  setLoadingAnalytics(false);
+}
 
+useEffect(() => {
+  // Panggil ulang fetchAnalyticsData setiap kali periode berubah
+  if (activeSection === 'analytics' && session) {
+    fetchAnalyticsData();
+  }
+}, [analyticsPeriod]);
 
 async function fetchTransactionsByDate(startDate: Date, endDate: Date, category: string | null = null) {
   setLoadingReport(true);
@@ -324,7 +465,7 @@ async function fetchTransactionsByDate(startDate: Date, endDate: Date, category:
 
   if (data) {
     setReportData(data);
-    const totalRevenue = data.reduce((sum, t) => sum + t.total_amount, 0);
+    const totalRevenue = data.reduce((sum: number, t: any) => sum + t.total_amount, 0);
     const transactionCount = data.length;
     const averageTransaction = transactionCount > 0 ? totalRevenue / transactionCount : 0;
     setReportSummary({ revenue: totalRevenue, count: transactionCount, average: averageTransaction });
@@ -347,25 +488,47 @@ async function fetchTransactionsByDate(startDate: Date, endDate: Date, category:
   }
 
 
- useEffect(() => {
-    const fetchDataForSection = async () => {
-      if (activeSection === 'customers') {
+useEffect(() => {
+  const fetchDataForSection = async () => {
+    if (!session) return;
+
+    switch (activeSection) {
+      case 'dashboard':
+        // Panggil ulang fetchDashboardData saat kembali ke dashboard
+        fetchDashboardData();
+        break;
+      case 'inventory':
+        // Panggil data produk & prediksi saat di menu stok
+        getProducts();
+        fetchSalesPrediction();
+        break;
+      case 'products':
+        getProductSummary();
+        getProducts(); // Panggil juga getProducts agar daftar selalu update
+        break;
+      case 'customers':
         getCustomerSummary();
         getCustomers();
-      } else if (activeSection === 'products') {
-        getProductSummary();
-      } else if (activeSection === 'reports') {
+        break;
+      case 'reports':
         const { data } = await supabase.rpc('get_unique_categories');
         if (data) {
-          const formattedCategories = data.map((cat: any) => ({ value: cat.kategori, label: cat.kategori }));
-          setCategoryList(formattedCategories);
+          setCategoryList(data.map((cat: any) => ({ value: cat.kategori, label: cat.kategori })));
         }
-      } else if (activeSection === 'notifications') {
+        break;
+      case 'notifications':
         getNotifications();
-      }
-    };
-    fetchDataForSection();
-  }, [activeSection]);
+        break;
+      case 'analytics':
+        fetchAnalyticsData();
+        break;
+      default:
+        break;
+    }
+  };
+  
+  fetchDataForSection();
+}, [activeSection, session]);
 
 async function getCustomers() {
   // Pastikan fungsi ini memanggil RPC yang menghitung status
@@ -856,6 +1019,30 @@ const renderDashboard = () => {
         </div>
       </div>
 
+      {restockRecommendations.length > 0 && (
+        <Card className="bg-white border-2 border-yellow-200 shadow-xl">
+          <CardHeader className="flex flex-row items-start gap-4">
+            <div className="bg-yellow-400 p-3 rounded-full mt-1">
+              <Lightbulb className="w-6 h-6 text-yellow-900" />
+            </div>
+            <div>
+              <CardTitle>Rekomendasi Aksi</CardTitle>
+              <p className="text-sm text-gray-600">Produk terlaris dengan stok menipis. Segera isi ulang!</p>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {restockRecommendations.map(product => (
+                <div key={product.id} className="flex justify-between items-center p-2 rounded-md hover:bg-gray-50">
+                  <span className="font-semibold">{product.nama_produk}</span>
+                  <span className="text-sm font-bold text-red-600">Sisa {product.stok}</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
     <div className="bg-white rounded-2xl border-2 border-gray-200 shadow-2xl relative overflow-hidden">
       <div className="p-8">
         <h3 className="text-2xl font-bold text-black tracking-tight mb-6">Aktivitas Terbaru</h3>
@@ -918,7 +1105,7 @@ const renderDashboard = () => {
           </div>        
         </div>
       </div>
-    </div> // <-- Ini adalah tag </div> penutup yang hilang
+    </div>
   );
 };
 
@@ -996,17 +1183,34 @@ const renderInventory = () => {
                   {loadingProducts ? <TableRow><TableCell colSpan={5}>Memuat data...</TableCell></TableRow> :
                     products.map((item) => {
                       const status = getStatus(item.stok);
-                      return (
-                        <TableRow key={item.id} className="border-gray-200 hover:bg-gray-50">
-                          <TableCell className="font-semibold">{item.nama_produk}</TableCell>
-                          <TableCell className={`${status.key !== 'normal' ? 'font-bold text-red-600' : ''}`}>{item.stok}</TableCell>
-                          <TableCell>{MINIMUM_STOCK}</TableCell>
-                          <TableCell><span className={`px-3 py-1 rounded-full text-sm font-bold ${status.className}`}>{status.label}</span></TableCell>
-
-                        </TableRow>
-                      );
-                    })}
-                </TableBody>
+                      const prediction = salesPrediction.find(p => p.product_id == item.id);
+                      let predictionText = null;
+                      if (prediction && prediction.avg_daily_sales > 0) {
+                        const daysLeft = Math.floor(item.stok / prediction.avg_daily_sales);
+                        if (daysLeft <= 7) { // Hanya tampilkan jika prediksi di bawah 7 hari
+                          predictionText = `Diperkirakan habis dalam ~${daysLeft} hari`;
+                        }
+                      }
+    return (
+      <TableRow key={item.id}>
+        <TableCell className="font-semibold">
+          {item.nama_produk}
+          {/* --- TAMPILKAN TEKS PREDIKSI --- */}
+          {predictionText && (
+            <p className="text-xs text-gray-500 font-normal italic">{predictionText}</p>
+          )}
+        </TableCell>
+        <TableCell>{item.stok}</TableCell>
+        <TableCell>{MINIMUM_STOCK}</TableCell>
+        <TableCell>
+          <span className={`px-3 py-1 rounded-full text-sm font-bold ${status.className}`}>
+            {status.label}
+          </span>
+        </TableCell>
+      </TableRow>
+    );
+  })}
+</TableBody>
               </Table>
             </div>
           </div>
@@ -1121,58 +1325,78 @@ const renderProducts = () => (
   
 
 const renderCustomers = () => {
-  // Tampilan Detail Pelanggan & Riwayat Transaksi
+
   if (viewingCustomer) {
-    return (
-      <div className="space-y-6">
-        <Button variant="ghost" onClick={() => setViewingCustomer(null)} className="mb-4">
-          <ArrowLeft className="w-4 h-4 mr-2" />
-          Kembali ke Daftar Pelanggan
-        </Button>
+    const customerTier = getCustomerTier(customerLoyaltyCount);
+    
+ return (
+    <div className="space-y-6">
+      <Button variant="ghost" onClick={() => setViewingCustomer(null)} className="mb-2">
+        <ArrowLeft className="w-4 h-4 mr-2" />
+        Kembali ke Daftar Pelanggan
+      </Button>
+      
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
-        <Card className="bg-white border-2 border-gray-200 shadow-xl">
-          <CardHeader>
-            <CardTitle className="text-2xl">{viewingCustomer.name}</CardTitle>
-            <CardDescription>{viewingCustomer.email || 'Tidak ada email'} | {viewingCustomer.phone || 'Tidak ada telepon'}</CardDescription>
-          </CardHeader>
-        </Card>
-        
-        <div className="bg-white rounded-2xl border-2 border-gray-200 shadow-2xl">
-          <div className="p-8">
-            <h4 className="text-xl font-bold text-black mb-6">Riwayat Transaksi</h4>
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Waktu</TableHead>
-                    <TableHead>ID Transaksi</TableHead>
-                    <TableHead>Detail Item</TableHead>
-                    <TableHead className="text-right">Total</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {loadingHistory ? (
-                    <TableRow><TableCell colSpan={4} className="text-center">Memuat riwayat...</TableCell></TableRow>
-                  ) : customerHistory.length === 0 ? (
-                    <TableRow><TableCell colSpan={4} className="text-center">Pelanggan ini belum memiliki transaksi.</TableCell></TableRow>
-                  ) : (
-                    customerHistory.map(t => (
-                      <TableRow key={t.id}>
-                        <TableCell>{new Date(t.created_at).toLocaleString('id-ID')}</TableCell>
-                        <TableCell>{t.nomor_faktur || `#${t.id}`}</TableCell>
-                        <TableCell>{t.items.map((item: any) => `${item.nama_produk} (x${item.quantity})`).join(', ')}</TableCell>
-                        <TableCell className="text-right font-bold">Rp {t.total_amount.toLocaleString('id-ID')}</TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </div>
-          </div>
+        {/* --- KOLOM KIRI --- */}
+        <div className="lg:col-span-2 space-y-6">
+          <Card className="bg-white border-2 border-gray-200 shadow-xl">
+            <CardHeader>
+              <CardTitle className="text-2xl">{viewingCustomer.name}</CardTitle>
+            </CardHeader>
+            <CardContent className="grid md:grid-cols-2 gap-6">
+              <div className="space-y-4">
+                <div><Label className="text-xs text-gray-500">Email</Label><p>{viewingCustomer.email || '-'}</p></div>
+                <div><Label className="text-xs text-gray-500">Telepon</Label><p>{viewingCustomer.phone || '-'}</p></div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="customer-notes">Catatan Pelanggan</Label>
+                <Textarea id="customer-notes" placeholder="Preferensi, alergi, dll." value={customerNotes} onChange={(e) => setCustomerNotes(e.target.value)} rows={2}/>
+                <Button onClick={handleSaveCustomerNotes} disabled={savingNotes} size="sm">{savingNotes && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Simpan Catatan</Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-white">
+            <CardHeader><CardTitle>Ringkasan Statistik</CardTitle></CardHeader>
+            <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
+              <div><p className="text-sm text-gray-500 uppercase">Total Belanja</p><p className="text-2xl font-bold">Rp {customerStats.totalSpending.toLocaleString('id-ID')}</p></div>
+              <div><p className="text-sm text-gray-500 uppercase">Produk Favorit</p><p className="text-2xl font-bold truncate">{customerStats.favoriteProduct}</p></div>
+              <div><p className="text-sm text-gray-500 uppercase">Rata-rata Transaksi</p><p className="text-2xl font-bold">Rp {Math.round(customerStats.averageSpending).toLocaleString('id-ID')}</p></div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* --- KOLOM KANAN --- */}
+        <div className="lg:col-span-1">
+          <Card className="bg-white h-full">
+            <CardHeader><CardTitle>Status Loyalitas</CardTitle></CardHeader>
+            <CardContent className="flex flex-col items-center justify-center text-center">
+              <div className={`relative p-2 rounded-full ${customerTier.color}`}><div className="bg-white p-3 rounded-full shadow-inner"><customerTier.icon className={`w-16 h-16 ${customerTier.iconColor}`} /></div></div>
+              <h3 className={`mt-4 text-xl font-bold ${customerTier.iconColor}`}>{customerTier.name}</h3>
+              <p className="text-sm text-gray-500">{customerLoyaltyCount} Total Transaksi</p>
+              <div className="w-full mt-6 space-y-5">
+                {profile?.loyalty_enabled && (<div><div className="flex justify-between items-center mb-1 text-xs"><span className="text-gray-600">Reward (Diskon {profile.loyalty_discount_percent}%)</span><span className="font-bold">{customerLoyaltyCount % profile.loyalty_threshold} / {profile.loyalty_threshold}</span></div><Progress value={(customerLoyaltyCount % profile.loyalty_threshold / profile.loyalty_threshold) * 100} /></div>)}
+                {customerTier.nextTier ? (<div><div className="flex justify-between items-center mb-1 text-xs"><span className="text-gray-600">Progres ke {customerTier.nextTier.name}</span><span className="font-bold">{customerLoyaltyCount} / {customerTier.nextTier.threshold}</span></div><Progress value={(customerLoyaltyCount / customerTier.nextTier.threshold) * 100} className="[&>*]:bg-yellow-400" /></div>) : (<p className="text-sm font-semibold text-yellow-600 mt-2">Pencapaian Tertinggi!</p>)}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+      </div>
+      
+      {/* --- TABEL RIWAYAT TRANSAKSI (DI LUAR GRID) --- */}
+      <div className="bg-white rounded-2xl border-2 border-gray-200 shadow-2xl">
+        <div className="p-8">
+          <h4 className="text-xl font-bold text-black mb-6">Riwayat Transaksi</h4>
+          <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Waktu</TableHead><TableHead>ID Transaksi</TableHead><TableHead>Detail Item</TableHead><TableHead className="text-right">Total</TableHead></TableRow></TableHeader><TableBody>{loadingHistory ? (<TableRow><TableCell colSpan={4} className="text-center">Memuat riwayat...</TableCell></TableRow>) : customerHistory.length === 0 ? (<TableRow><TableCell colSpan={4} className="text-center">Pelanggan ini belum memiliki transaksi.</TableCell></TableRow>) : (customerHistory.map(t => (<TableRow key={t.id}><TableCell>{new Date(t.created_at).toLocaleString('id-ID')}</TableCell><TableCell>{t.nomor_faktur || `#${t.id}`}</TableCell><TableCell>{t.items.map((item: any) => `${item.nama_produk} (x${item.quantity})`).join(', ')}</TableCell><TableCell className="text-right font-bold">Rp {t.total_amount.toLocaleString('id-ID')}</TableCell></TableRow>)))}</TableBody></Table></div>
         </div>
       </div>
-    );
-  }
+    </div>
+  );
+}
+
+  
 
   // Tampilan Daftar Pelanggan (Default)
   return (
@@ -1201,11 +1425,32 @@ const renderCustomers = () => {
             <CardContent><div className="text-3xl font-black text-red-600">{loadingSummary ? '...' : customerSummary.inactive_customers}</div><p className="text-red-600">Perlu dihubungi</p></CardContent>
           </Card>
         </div>
+
         {/* ^^^ --------------------------------------------- ^^^ */}
         {/* VVV --- TABEL DAFTAR PELANGGAN BARU --- VVV */}
         <div className="bg-white rounded-2xl border-2 border-gray-200 shadow-2xl">
           <div className="p-8">
             <h4 className="text-xl font-bold text-black mb-6">Daftar Pelanggan</h4>
+              <div className="flex items-center gap-4 mb-6">
+    <Input
+      placeholder="Cari nama, email, atau telepon..."
+      value={searchTerm}
+      onChange={(e) => setSearchTerm(e.target.value)}
+      className="max-w-sm"
+    />
+    <Select value={tierFilter} onValueChange={setTierFilter}>
+      <SelectTrigger className="w-[180px]">
+        <SelectValue placeholder="Filter Tier" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="Semua">Semua Tier</SelectItem>
+        <SelectItem value="Bronze">Bronze</SelectItem>
+        <SelectItem value="Silver">Silver</SelectItem>
+        <SelectItem value="Gold">Gold</SelectItem>
+      </SelectContent>
+    </Select>
+  </div>
+            
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
@@ -1217,30 +1462,32 @@ const renderCustomers = () => {
                     <TableHead className="text-right">Aksi</TableHead>
                   </TableRow>
                 </TableHeader>
-                <TableBody>
-                  {customers.length === 0 ? <TableRow><TableCell colSpan={4} className="text-center text-gray-500 py-8">Belum ada pelanggan.</TableCell></TableRow> :
-                    customers.map((customer) => (
+               <TableBody>
+                  {filteredCustomers.length > 0 ? (
+                    filteredCustomers.map((customer) => (
                       <TableRow key={customer.id} className="border-gray-200 hover:bg-gray-50">
-                       <TableCell>
-                        <button onClick={() => handleViewCustomerHistory(customer)} className="font-semibold text-orange-600 hover:underline">
-                          {customer.name}
-                        </button>
-                      </TableCell>
+                        <TableCell>
+                          <button onClick={() => handleViewCustomerHistory(customer)} className="font-semibold text-orange-600 hover:underline">
+                            {customer.name}
+                          </button>
+                        </TableCell>
                         <TableCell>{customer.email || '-'}</TableCell>
                         <TableCell>{customer.phone || '-'}</TableCell>
-                        <TableCell>
-                        <span className={`px-2 py-1 rounded-full text-xs font-semibold ${customer.status === 'Aktif' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>{customer.status}</span></TableCell>
-                        <TableCell className="text-right">
-                        <Button variant="outline" size="sm" onClick={() => handleEditCustomerClick(customer)}>
-                          Edit
-                        </Button>
-                      </TableCell>
+                        <TableCell><span className={`px-2 py-1 rounded-full text-xs font-semibold ${customer.status === 'Aktif' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>{customer.status}</span></TableCell>
+                        <TableCell className="text-right"><Button variant="outline" size="sm" onClick={() => handleEditCustomerClick(customer)}>Edit</Button></TableCell>
                       </TableRow>
-                    ))}
+                    ))
+                  ) : (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-center text-gray-500 py-8">
+                        Tidak ada pelanggan yang cocok.
+                      </TableCell>
+                    </TableRow>
+                  )}
                 </TableBody>
-              </Table>
-            </div>
-          </div>
+    </Table>
+  </div>
+</div>
         </div>
     </div>
        {/* --- DIALOG UNTUK TAMBAH PELANGGAN --- */}
@@ -1514,7 +1761,23 @@ const renderReports = () => {
 
   const renderAnalytics = () => (
     <div className="space-y-8">
+      <div className="flex flex-col items-center gap-4">
       <h3 className="text-2xl font-bold text-black tracking-tight">Analitik & Grafik</h3>
+
+      <div className="flex items-center gap-2">
+        {[7, 30, 90].map(period => (
+          <Button
+            key={period}
+            onClick={() => setAnalyticsPeriod(period)}
+            variant={analyticsPeriod === period ? "default" : "outline"} // Ubah variant
+            className={`transition-all ${analyticsPeriod === period ? 'bg-black text-white' : 'border-gray-300'}`}
+          >
+            {period} Hari Terakhir
+          </Button>
+        ))}
+      </div>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <Card className="bg-white border-2 border-gray-200 shadow-2xl">
           <CardHeader><CardTitle className="text-xl font-bold text-black">Tren Penjualan 7 Hari Terakhir</CardTitle></CardHeader>
@@ -1671,6 +1934,9 @@ const renderSettings = () => {
     case 'security':
     return <SecuritySettings onBack={() => setActiveSetting('main')} />;
 
+    case 'loyalty':
+    return <LoyaltySettings profile={profile} onBack={() => setActiveSetting('main')} refreshProfileData={refreshProfileData} />;
+    
     default: // Tampilan utama pengaturan
       return (
         <div className="space-y-8">
@@ -1722,13 +1988,16 @@ const renderSettings = () => {
                 <p className="text-gray-600 text-sm">Password & keamanan akun</p>
               </CardContent>
             </Card>
-        <Card className="bg-white border-2 border-gray-200 shadow-xl hover:shadow-2xl transition-all duration-300 cursor-pointer">
-          <CardContent className="p-6 text-center">
-            <Gift className="w-12 h-12 text-gray-500 mx-auto mb-4" />
-            <h4 className="font-bold text-lg text-black mb-2">Program Loyalitas</h4>
-            <p className="text-gray-600 text-sm">Atur reward pelanggan</p>
-          </CardContent>
-        </Card>
+            <Card 
+              onClick={() => setActiveSetting('loyalty')} 
+              className="bg-white border-2 border-gray-200 shadow-xl hover:shadow-2xl transition-all duration-300 cursor-pointer hover:border-orange-500"
+            >
+              <CardContent className="p-6 text-center">
+                <Gift className="w-12 h-12 text-orange-500 mx-auto mb-4" />
+                <h4 className="font-bold text-lg text-black mb-2">Program Loyalitas</h4>
+                <p className="text-gray-600 text-sm">Atur reward pelanggan</p>
+              </CardContent>
+            </Card>
         <Card className="bg-white border-2 border-gray-200 shadow-xl hover:shadow-2xl transition-all duration-300 cursor-pointer">
           <CardContent className="p-6 text-center">
             <Bell className="w-12 h-12 text-black mx-auto mb-4" />
