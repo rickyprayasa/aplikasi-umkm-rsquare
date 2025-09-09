@@ -1,4 +1,5 @@
 // src/components/ui/combobox.tsx
+
 "use client"
 
 import * as React from "react"
@@ -20,23 +21,23 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 
+type ComboboxOption = {
+  value: string;
+  label: string;
+};
+
 interface ComboboxProps {
-  options: { value: string; label: string }[]
-  onSelect: (value: string) => void
-  placeholder?: string
-  searchPlaceholder?: string
-  notFoundMessage?: string
+  options: ComboboxOption[];
+  onSelect: (value: string) => void;
+  placeholder?: string;
+  value?: string | null;
+  disabled?: boolean; // <-- PROPERTI BARU
 }
 
-export function Combobox({ 
-  options, 
-  onSelect, 
-  placeholder = "Select option...", 
-  searchPlaceholder = "Search...", 
-  notFoundMessage = "No option found." 
-}: ComboboxProps) {
+export function Combobox({ options, onSelect, placeholder, value, disabled }: ComboboxProps) {
   const [open, setOpen] = React.useState(false)
-  const [value, setValue] = React.useState("")
+
+  const selectedLabel = options.find((option) => option.value === value)?.label;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -46,26 +47,24 @@ export function Combobox({
           role="combobox"
           aria-expanded={open}
           className="w-full justify-between"
+          disabled={disabled} // <-- PROPERTI BARU DITERAPKAN DI SINI
         >
-          {value
-            ? options.find((option) => option.value === value)?.label
-            : placeholder}
+          {value && selectedLabel ? selectedLabel : placeholder || "Pilih..."}
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+      <PopoverContent className="w-[200px] p-0">
         <Command>
-          <CommandInput placeholder={searchPlaceholder} />
+          <CommandInput placeholder="Cari..." />
           <CommandList>
-            <CommandEmpty>{notFoundMessage}</CommandEmpty>
+            <CommandEmpty>Tidak ditemukan.</CommandEmpty>
             <CommandGroup>
               {options.map((option) => (
                 <CommandItem
                   key={option.value}
                   value={option.value}
                   onSelect={(currentValue) => {
-                    setValue(currentValue === value ? "" : currentValue)
-                    onSelect(currentValue)
+                    onSelect(currentValue === value ? "" : currentValue)
                     setOpen(false)
                   }}
                 >

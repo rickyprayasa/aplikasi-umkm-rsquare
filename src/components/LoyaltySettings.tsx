@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch"; // Import baru
-import { ArrowLeft, Loader2 } from 'lucide-react';
+import { ArrowLeft, Loader2, Save } from 'lucide-react';
 
 interface LoyaltySettingsProps {
   profile: any;
@@ -106,7 +106,7 @@ export default function LoyaltySettings({ profile, onBack, refreshProfileData }:
 
               <div className="flex items-center gap-4">
                 <Button onClick={handleSave} disabled={saving}>
-                  {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
                   Simpan Pengaturan
                 </Button>
                 {message && <p className={`text-sm ${message.includes('Gagal') ? 'text-red-500' : 'text-green-600'}`}>{message}</p>}

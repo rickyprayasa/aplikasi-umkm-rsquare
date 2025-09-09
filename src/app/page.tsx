@@ -33,9 +33,11 @@ import UserProfile from '@/components/UserProfile';
 import StoreProfile from '@/components/StoreProfile';
 import SecuritySettings from '@/components/SecuritySettings';
 import LoyaltySettings from '@/components/LoyaltySettings';
+import PrinterSettings from '@/components/PrinterSettings';
 import { Progress } from "@/components/ui/progress";
 import { useMemo } from 'react';
 import { Textarea } from "@/components/ui/textarea";
+import Image from 'next/image';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -53,12 +55,20 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 
-
-
 type TransactionData = {
   items: any[]; // Anda bisa buat tipe lebih spesifik jika mau
   total_amount: number;
   customer_id: number | null; // customer_id bisa berupa angka atau null
+};
+
+type TransactionReportItem = {
+  id: number;
+  created_at: string;
+  total_amount: number;
+  items: any[];
+  customer_id: number | null;
+  nomor_faktur: string;
+  payment_method_name: string | null;
 };
 
 export default function HomePage() {
@@ -67,6 +77,7 @@ export default function HomePage() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [activeSection, setActiveSection] = useState("dashboard")
   const [activeSetting, setActiveSetting] = useState("main")
+  const [activeReportType, setActiveReportType] = useState('transactions');
   
   const [products, setProducts] = useState<any[]>([])
   const [loadingProducts, setLoadingProducts] = useState(true)
@@ -131,6 +142,7 @@ export default function HomePage() {
   const [analyticsPeriod, setAnalyticsPeriod] = useState(7);
   const [salesPrediction, setSalesPrediction] = useState<any[]>([]);
   const [restockRecommendations, setRestockRecommendations] = useState<any[]>([]);
+  const [comboboxKey, setComboboxKey] = useState(Date.now());
   
   const MINIMUM_STOCK = 15;
 
@@ -151,6 +163,32 @@ export default function HomePage() {
     }
 }, [viewingCustomer]);
 
+const handleResetFilters = () => {
+  // Reset tanggal ke default (misalnya, bulan ini)
+  const start = new Date(); start.setDate(1); start.setHours(0,0,0,0);
+  const end = new Date(); end.setHours(23,59,59,999);
+  setDateRange({ from: start, to: end });
+
+  // Reset kategori
+  setSelectedCategory(null);
+
+  // Reset combobox agar menampilkan placeholder lagi
+  setComboboxKey(Date.now()); 
+};
+
+const productReportSummary = useMemo(() => {
+  if (!productReportData || productReportData.length === 0) {
+    return { totalRevenue: 0, totalQuantity: 0, bestseller: '-' };
+  }
+
+  const totalRevenue = productReportData.reduce((sum, p) => sum + Number(p.total_revenue), 0);
+  const totalQuantity = productReportData.reduce((sum, p) => sum + Number(p.total_quantity), 0);
+  
+  // Karena data sudah diurutkan dari SQL, produk terlaris adalah item pertama
+  const bestseller = productReportData[0]?.nama_produk || '-';
+
+  return { totalRevenue, totalQuantity, bestseller };
+}, [productReportData]);
 
 const customerStats = useMemo(() => {
   if (!customerHistory || customerHistory.length === 0) {
@@ -192,6 +230,67 @@ const getCustomerTier = (transactionCount: number) => {
   const progress = (transactionCount / tiers.silver.threshold) * 100;
   return { ...tiers.bronze, icon: Medal, nextTier: tiers.silver, progress: progress, transactionsForNextTier: tiers.silver.threshold, currentProgressInTier: transactionCount };
 };
+
+  useEffect(() => {
+    setIsMounted(true);
+    if(session) {
+      if (activeSection === 'dashboard') {
+        fetchDashboardData();
+        // Anda bisa tambahkan fetch data lain untuk dashboard di sini
+      } else if (activeSection === 'reports') {
+        // Ambil daftar kategori saat masuk ke halaman laporan
+        const fetchCategories = async () => {
+          const { data } = await supabase.rpc('get_unique_categories');
+          if (data) {
+            setCategoryList(data.map((cat: any) => ({ value: cat.kategori, label: cat.kategori })));
+          }
+        };
+        fetchCategories();
+      }
+      // Tambahkan else if untuk section lain jika perlu
+    }
+  }, [session, activeSection]);
+
+  useEffect(() => {
+    if (activeSection !== 'reports' || !isMounted || !dateRange?.from || !dateRange?.to) {
+        return;
+    }
+
+    const fetchData = async () => {
+      setLoadingReport(true);
+      
+      if (activeReportType === 'products') {
+        setReportData([]);
+        const { data, error } = await supabase.rpc('get_product_report', {
+          start_date: dateRange.from ? dateRange.from.toISOString() : "",
+          end_date: (dateRange.to ?? dateRange.from ?? new Date()).toISOString(),
+          category_in: selectedCategory
+        });
+        if (error) console.error("Error fetching product report:", error);
+        setProductReportData(data || []);
+      } else { // activeReportType === 'transactions'
+        setProductReportData([]);
+        const { data, error } = await supabase.rpc('get_filtered_transactions', {
+          start_date_in: dateRange.from ? dateRange.from.toISOString() : "",
+          end_date_in: dateRange.to ? dateRange.to.toISOString() : ""
+        });
+        if (!error) {
+          const reportData: TransactionReportItem[] = data || [];
+          setReportData(reportData);
+          const totalRevenue = reportData.reduce((sum, t) => sum + t.total_amount, 0);
+          const transactionCount = reportData.length;
+          const averageTransaction = transactionCount > 0 ? totalRevenue / transactionCount : 0;
+          setReportSummary({ revenue: totalRevenue, count: transactionCount, average: averageTransaction });
+        } else {
+          console.error("Error fetching transaction report:", error);
+          setReportData([]); // Pastikan data kosong jika ada error
+        }
+      }
+      setLoadingReport(false);
+    };
+
+    fetchData();
+  }, [activeSection, activeReportType, dateRange, selectedCategory, isMounted]);
 
 const filteredCustomers = useMemo(() => {
   if (!customers) return [];
@@ -242,6 +341,27 @@ const handleViewCustomerHistory = async (customer: any) => {
   setLoadingHistory(false);
 };
 
+  const handleShortcutClick = (period: 'week' | 'month') => {
+    const end = new Date();
+    const start = new Date();
+    let title = "";
+
+    if (period === 'week') {
+      start.setDate(end.getDate() - 7);
+      title = `Ringkasan 7 Hari Terakhir`;
+    } else { // month
+      start.setDate(1);
+      title = `Ringkasan Bulan Ini`;
+    }
+    
+    start.setHours(0,0,0,0);
+    end.setHours(23,59,59,999);
+
+    setActiveReportType('transactions');
+    setReportTitle(title);
+    setDateRange({ from: start, to: end });
+  };
+
 const handleSaveCustomerNotes = async () => {
   if (!viewingCustomer) return;
   setSavingNotes(true);
@@ -263,10 +383,7 @@ const handleSaveCustomerNotes = async () => {
 };
 
 
-  const handleReprintClick = (transaction: any) => {
-  setSelectedTransaction(transaction);
-  setIsPreviewOpen(true);
-};
+  const handleReprintClick = (transaction: any) => { setIsPreviewOpen(true); setSelectedTransaction(transaction); };
   
   async function getCustomerSummary() {
     setLoadingSummary(true);
@@ -286,10 +403,10 @@ const handleSaveCustomerNotes = async () => {
 
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => { setSession(session) })
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => { setSession(session) })
-    return () => subscription.unsubscribe()
-  }, [])
+    supabase.auth.getSession().then(({ data: { session } }) => { setSession(session) });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => { setSession(session) });
+    return () => subscription.unsubscribe();
+  }, []);
 
   
 async function fetchSalesPrediction() {
@@ -384,30 +501,28 @@ useEffect(() => {
   
 async function fetchDashboardData(page = 1) {
   setLoadingDashboard(true);
-  
-  const { data: recoData, error: recoError } = await supabase.rpc('get_restock_recommendations');
-  if (recoData) {
-    setRestockRecommendations(recoData);
-  }
-  if (recoError) {
-    console.error("Error fetching recommendations:", recoError);
-  }
 
-  const from = (page - 1) * ITEMS_PER_PAGE;
-  const to = from + ITEMS_PER_PAGE - 1;
+  // --- MEMANGGIL SEMUA DATA YANG DIPERLUKAN UNTUK DASHBOARD ---
+  const [
+    { data: recoData },
+    { data: compData },
+    { data: transData, count }
+  ] = await Promise.all([
+    supabase.rpc('get_restock_recommendations'),
+    supabase.rpc('get_dashboard_comparison'),
+    supabase.from('transactions').select('*', { count: 'exact' }).order('created_at', { ascending: false }).range((page - 1) * ITEMS_PER_PAGE, (page - 1) * ITEMS_PER_PAGE + ITEMS_PER_PAGE - 1)
+  ]);
 
-  const { data: transData, error: transError, count } = await supabase
-    .from('transactions')
-    .select('*', { count: 'exact' })
-    .order('created_at', { ascending: false })
-    .range(from, to);
-
+  // Memperbarui state dengan data yang sudah diambil
+  if (recoData) setRestockRecommendations(recoData);
+  if (compData) setComparisonData(compData);
   if (transData) {
     setTransactions(transData);
     if (count) setTotalTransactions(count);
   }
-  if (transError) console.error("Error fetching transactions: ", transError);
+  // ----------------------------------------------------
 
+  // Sisa dari fungsi fetchDashboardData (tidak berubah)
   const today = new Date().toISOString().slice(0, 10);
   const { data: todayTransData } = await supabase
     .from('transactions')
@@ -454,14 +569,20 @@ useEffect(() => {
   }
 }, [analyticsPeriod]);
 
-async function fetchTransactionsByDate(startDate: Date, endDate: Date, category: string | null = null) {
+async function fetchTransactionsByDate(startDate: Date, endDate: Date) {
   setLoadingReport(true);
-  // Panggil fungsi RPC yang baru dengan parameter yang sesuai
+  setProductReportData([]); // PERUBAHAN: Selalu kosongkan laporan produk
+  setReportData([]);
+  
   const { data, error } = await supabase.rpc('get_filtered_transactions', {
     start_date_in: startDate.toISOString(),
-    end_date_in: endDate.toISOString(),
-    category_in: category
+    end_date_in: endDate.toISOString()
   });
+
+  if (error) {
+    console.error("Error fetching report data: ", error);
+    alert("Error mengambil data laporan: " + error.message);
+  }
 
   if (data) {
     setReportData(data);
@@ -469,12 +590,10 @@ async function fetchTransactionsByDate(startDate: Date, endDate: Date, category:
     const transactionCount = data.length;
     const averageTransaction = transactionCount > 0 ? totalRevenue / transactionCount : 0;
     setReportSummary({ revenue: totalRevenue, count: transactionCount, average: averageTransaction });
+  } else {
+    setReportData([]);
+    setReportSummary({ revenue: 0, count: 0, average: 0 });
   }
-
-  if (error) {
-    console.error("Error fetching report data: ", error);
-  }
-  
   setLoadingReport(false);
 }
 
@@ -488,47 +607,30 @@ async function fetchTransactionsByDate(startDate: Date, endDate: Date, category:
   }
 
 
-useEffect(() => {
-  const fetchDataForSection = async () => {
-    if (!session) return;
-
-    switch (activeSection) {
-      case 'dashboard':
-        // Panggil ulang fetchDashboardData saat kembali ke dashboard
-        fetchDashboardData();
-        break;
-      case 'inventory':
-        // Panggil data produk & prediksi saat di menu stok
-        getProducts();
-        fetchSalesPrediction();
-        break;
-      case 'products':
-        getProductSummary();
-        getProducts(); // Panggil juga getProducts agar daftar selalu update
-        break;
-      case 'customers':
-        getCustomerSummary();
-        getCustomers();
-        break;
-      case 'reports':
-        const { data } = await supabase.rpc('get_unique_categories');
-        if (data) {
-          setCategoryList(data.map((cat: any) => ({ value: cat.kategori, label: cat.kategori })));
-        }
-        break;
-      case 'notifications':
-        getNotifications();
-        break;
-      case 'analytics':
-        fetchAnalyticsData();
-        break;
-      default:
-        break;
-    }
-  };
-  
-  fetchDataForSection();
-}, [activeSection, session]);
+  useEffect(() => {
+    const fetchDataForSection = async () => {
+      if (!session) return;
+      switch (activeSection) {
+        case 'dashboard': fetchDashboardData(); break;
+        case 'inventory': getProducts(); fetchSalesPrediction(); break;
+        case 'products': getProductSummary(); getProducts(); break;
+        case 'customers': getCustomerSummary(); getCustomers(); break;
+case 'reports': { // Tambahkan kurung kurawal
+  const { data } = await supabase.rpc('get_unique_categories');
+  if (data) {
+    setCategoryList(data.map((cat: any) => ({ value: cat.kategori, label: cat.kategori })));
+  }
+  // PERBAIKAN: Panggil laporan bulanan sebagai default setiap masuk ke halaman laporan
+  handleShortcutClick('month');
+  break;
+}
+        case 'notifications': getNotifications(); break;
+        case 'analytics': fetchAnalyticsData(); break;
+        default: break;
+      }
+    };
+    fetchDataForSection();
+  }, [activeSection, session]);
 
 async function getCustomers() {
   // Pastikan fungsi ini memanggil RPC yang menghitung status
@@ -541,13 +643,76 @@ async function getCustomers() {
   useEffect(() => {
     setIsMounted(true);
     if(session) {
-      getProducts();
-      getCustomers(); // Panggil data pelanggan
-      fetchDashboardData(currentPage);
-      fetchAnalyticsData();
-      refreshProfileData();
+      const fetchInitialData = async () => {
+        const getUnreadCount = async () => {
+          const { data, error } = await supabase.rpc('get_unread_notification_count');
+          if (error) console.error("Error fetching unread count:", error);
+          else if (typeof data === 'number') setUnreadCount(data);
+        };
+        await Promise.all([
+          fetchDashboardData(currentPage),
+          getProducts(),
+          getCustomers(),
+          refreshProfileData(),
+          getUnreadCount()
+        ]);
+      };
+      fetchInitialData();
     }
-  }, [session, currentPage])
+  }, [session, currentPage]);
+
+  // useEffect UTAMA untuk mengambil data laporan secara reaktif
+  useEffect(() => {
+    if (activeSection !== 'reports' || !isMounted) return;
+
+    const fetchData = async () => {
+      if (!dateRange?.from || !dateRange?.to) return;
+      setLoadingReport(true);
+      
+      if (activeReportType === 'products') {
+        setReportData([]);
+        const { data, error } = await supabase.rpc('get_product_report', {
+          start_date: dateRange.from.toISOString(),
+          end_date: dateRange.to.toISOString(),
+          category_in: selectedCategory
+        });
+        if (!error) setProductReportData(data || []);
+        else console.error("Error fetching product report:", error);
+      } else {
+        setProductReportData([]);
+        const { data, error } = await supabase.rpc('get_filtered_transactions', {
+          start_date_in: dateRange.from.toISOString(),
+          end_date_in: dateRange.to.toISOString()
+        });
+        if (!error) {
+          setReportData(data || []);
+          const totalRevenue = (data || []).reduce((sum: number, t: TransactionReportItem) => sum + t.total_amount, 0);
+          const transactionCount = (data || []).length;
+          const averageTransaction = transactionCount > 0 ? totalRevenue / transactionCount : 0;
+          setReportSummary({ revenue: totalRevenue, count: transactionCount, average: averageTransaction });
+        } else {
+          console.error("Error fetching transaction report:", error);
+        }
+      }
+      setLoadingReport(false);
+    };
+
+    fetchData();
+  }, [activeSection, activeReportType, dateRange, selectedCategory, isMounted]);
+
+  // useEffect untuk mengambil daftar kategori saat masuk ke halaman laporan
+  useEffect(() => {
+    const fetchCategories = async () => {
+        if (activeSection === 'reports') {
+            const { data } = await supabase.rpc('get_unique_categories');
+            if (data) {
+                setCategoryList(data.map((cat: any) => ({ value: cat.kategori, label: cat.kategori })));
+            }
+        }
+    };
+    fetchCategories();
+  }, [activeSection]);
+
 
   const handleCustomerInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { id, value } = e.target;
@@ -625,38 +790,53 @@ const handleEditCustomerClick = (customer: any) => {
 
 const handleFormSubmit = async (e: React.FormEvent) => {
   e.preventDefault();
-  if (!session) return alert("Anda harus login.");
-   
-  const { id, nama_produk, harga, stok, kategori } = productFormData;
-  const productData = { nama_produk, harga: Number(harga), stok: Number(stok), user_id: session.user.id, kategori };
-   
-  if (id) {
-    // Logika untuk UPDATE tidak berubah
-    const { error } = await supabase.from('products').update(productData).eq('id', id);
-    if (error) {
-      alert('Error: ' + error.message);
-    } else {
-      alert(`Produk berhasil diperbarui!`);
-      setIsProductDialogOpen(false);
-      getProducts();
-      getProductSummary();
-    }
-  } else {
-    // --- PERUBAHAN DI SINI UNTUK INSERT ---
-    // Tambahkan .select().single() untuk mendapatkan data produk yang baru dibuat
-    const { data: newProduct, error } = await supabase.from('products').insert([productData]).select().single();
+  const form = e.currentTarget as HTMLFormElement;
+  const fileInput = form.elements.namedItem('gambar_produk') as HTMLInputElement;
+  const file = fileInput?.files?.[0];
 
-    if (error) {
-      alert('Error: ' + error.message);
-    } else if (newProduct) {
-      alert(`Produk berhasil ditambahkan!`);
-      setNewlyAddedProductId(newProduct.id); // Simpan ID produk baru ke state
-      setIsProductDialogOpen(false);
-      getProducts();
-      getProductSummary();
+  if (!session) return alert("Anda harus login.");
+
+  const { id, nama_produk, harga, stok, kategori } = productFormData;
+  let imageUrl = productFormData.image_url || null; // Ambil URL gambar yang sudah ada
+
+  // Jika ada file baru yang diunggah
+  if (file) {
+    const fileName = `${Date.now()}_${file.name}`;
+    const { data, error: uploadError } = await supabase.storage
+      .from('product-images')
+      .upload(fileName, file);
+
+    if (uploadError) {
+      alert('Gagal mengunggah gambar: ' + uploadError.message);
+      return;
     }
+
+    // Dapatkan URL publik dari gambar yang baru diunggah
+    const { data: { publicUrl } } = supabase.storage
+      .from('product-images')
+      .getPublicUrl(fileName);
+    imageUrl = publicUrl;
   }
+  
+  const productData = { nama_produk, harga: Number(harga), stok: Number(stok), user_id: session.user.id, kategori, image_url: imageUrl };
+  
+  // Logika simpan data ke tabel (update/insert)
+  if (id) {
+    const { error } = await supabase.from('products').update(productData).eq('id', id);
+    if (error) alert('Error: ' + error.message);
+    else alert('Produk berhasil diperbarui!');
+  } else {
+    const { error } = await supabase.from('products').insert([productData]);
+    if (error) alert('Error: ' + error.message);
+    else alert('Produk berhasil ditambahkan!');
+  }
+
+  // PERBAIKAN: Panggil getProducts() di luar blok if/else
+  // agar selalu berjalan setelah simpan.
+  getProducts();
+  setIsProductDialogOpen(false);
 };
+
   
 const handleEditClick = (product: any) => {
   setProductFormData({
@@ -849,18 +1029,19 @@ const handleSaveTransaction = async (transactionData: TransactionData) => {
   if (error) {
     alert("Gagal menyimpan transaksi: " + error.message);
     return null;
-  } else {
+  } 
+  
+  if (data) {
+    // PERBAIKAN: Buka dialog preview struk setelah berhasil
+    setSelectedTransaction(data);
+    setIsPreviewOpen(true);
+    
+    // Refresh data di background
     fetchDashboardData(); 
     getProducts();
     refreshProfileData();
-    const { data: countData } = await supabase.rpc('get_unread_notification_count');
-    if (typeof countData === 'number') {
-      setUnreadCount(countData);
-    }
-
-    // Sekarang 'data' dijamin adalah objek JSON yang kita mau
-    return data; 
   }
+  return data; 
 };
 
 
@@ -1005,7 +1186,7 @@ const renderDashboard = () => {
             <DialogTrigger asChild>
               <Button className="bg-black hover:bg-gray-800 text-white px-8 py-6 text-lg font-bold rounded-2xl transition-all duration-300 shadow-2xl hover:shadow-3xl hover:-translate-y-2" size="lg"><Plus className="w-5 h-5 mr-3" />Transaksi Baru</Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-2xl bg-white"><DialogHeader><DialogTitle className="text-black">Buat Transaksi Baru</DialogTitle><DialogDescription>Pilih produk dan tentukan jumlahnya.</DialogDescription></DialogHeader>
+            <DialogContent className="sm:max-w-6xl bg-white"><DialogHeader><DialogTitle className="text-black">Buat Transaksi Baru</DialogTitle><DialogDescription>Pilih produk dan tentukan jumlahnya.</DialogDescription></DialogHeader>
             <NewTransactionDialog 
               products={products} 
               customers={customers} 
@@ -1030,16 +1211,45 @@ const renderDashboard = () => {
               <p className="text-sm text-gray-600">Produk terlaris dengan stok menipis. Segera isi ulang!</p>
             </div>
           </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {restockRecommendations.map(product => (
-                <div key={product.id} className="flex justify-between items-center p-2 rounded-md hover:bg-gray-50">
-                  <span className="font-semibold">{product.nama_produk}</span>
-                  <span className="text-sm font-bold text-red-600">Sisa {product.stok}</span>
-                </div>
-              ))}
+<CardContent>
+  <div className="space-y-3">
+    {restockRecommendations.map(product => {
+      // Hitung perkiraan hari sampai habis (jika ada data penjualan rata-rata)
+      const daysLeft = product.avg_daily_sales > 0 
+        ? Math.floor(product.stok / product.avg_daily_sales)
+        : null;
+
+      return (
+        <div key={product.id} className="flex justify-between items-center p-3 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors">
+          {/* Bagian Kiri: Info Produk & Prediksi */}
+          <div>
+            <p className="font-bold text-black">{product.nama_produk}</p>
+            {daysLeft !== null && (
+              <p className="text-xs text-yellow-800 font-semibold italic">
+                {`Diperkirakan habis dalam ~${daysLeft} hari`}
+              </p>
+            )}
+          </div>
+
+          {/* Bagian Kanan: Sisa Stok & Tombol Aksi */}
+          <div className="flex items-center gap-4">
+            <div className="text-right">
+              <span className="text-sm text-gray-500">Sisa</span>
+              <p className="font-bold text-lg text-red-600">{product.stok}</p>
             </div>
-          </CardContent>
+            <Button 
+              size="sm" 
+              onClick={() => handleAddStockClick(product)} // <-- Memanggil fungsi yang sudah ada!
+              className="bg-orange-500 hover:bg-orange-600 text-white font-bold"
+            >
+              + Stok
+            </Button>
+          </div>
+        </div>
+      );
+    })}
+  </div>
+</CardContent>
         </Card>
       )}
 
@@ -1110,23 +1320,38 @@ const renderDashboard = () => {
 };
 
 const renderInventory = () => {
-
-  
   const productOptions = products.map(p => ({ value: p.id.toString(), label: p.nama_produk }));
+  
   return (
     <>
       <div className="space-y-8">
         <div className="flex justify-between items-center">
           <h3 className="text-2xl font-bold text-black tracking-tight">Manajemen Stok Barang</h3>
           <div className="flex gap-4">
-            <Dialog open={isStockInOpen} onOpenChange={setIsStockInOpen}>
+            
+            {/* --- Dialog Barang Masuk --- */}
+            <Dialog 
+              open={isStockInOpen} 
+              onOpenChange={(isOpen) => {
+                setIsStockInOpen(isOpen);
+                if (isOpen) {
+                  // PERBAIKAN: Reset state saat dialog dibuka
+                  setStockChangeData({ product_id: '', quantity: '' });
+                }
+              }}
+            >
               <DialogTrigger asChild>
-                <Button className="bg-green-600 hover:bg-green-700 text-white font-bold px-6 py-3 rounded-xl transition-all duration-300 shadow-lg hover:shadow-xl hover:-translate-y-1"><ArrowUp className="w-4 h-4 mr-2" />Barang Masuk</Button>
+                <Button className="bg-green-600 hover:bg-green-700 text-white font-bold px-6 py-3 rounded-xl"><ArrowUp className="w-4 h-4 mr-2" />Barang Masuk</Button>
               </DialogTrigger>
               <DialogContent className="bg-white">
                 <DialogHeader><DialogTitle>Catat Barang Masuk</DialogTitle></DialogHeader>
                 <div className="grid gap-4 py-4">
-                  <Combobox options={productOptions} onSelect={(val) => setStockChangeData(prev => ({...prev, product_id: val}))} placeholder="Pilih Produk..." />
+                  <Combobox 
+                    value={stockChangeData.product_id}
+                    options={productOptions} 
+                    onSelect={(val) => setStockChangeData(prev => ({...prev, product_id: val}))} 
+                    placeholder="Pilih Produk..." 
+                  />
                   <Input type="number" placeholder="Jumlah" value={stockChangeData.quantity} onChange={(e) => setStockChangeData(prev => ({...prev, quantity: e.target.value}))} />
                 </div>
                 <DialogFooter>
@@ -1134,14 +1359,30 @@ const renderInventory = () => {
                 </DialogFooter>
               </DialogContent>
             </Dialog>
-            <Dialog open={isStockOutOpen} onOpenChange={setIsStockOutOpen}>
+
+            {/* --- Dialog Barang Keluar --- */}
+            <Dialog 
+              open={isStockOutOpen} 
+              onOpenChange={(isOpen) => {
+                setIsStockOutOpen(isOpen);
+                if (isOpen) {
+                  // PERBAIKAN: Reset state saat dialog dibuka
+                  setStockChangeData({ product_id: '', quantity: '' });
+                }
+              }}
+            >
               <DialogTrigger asChild>
-                <Button className="bg-red-600 hover:bg-red-700 text-white font-bold px-6 py-3 rounded-xl transition-all duration-300 shadow-lg hover:shadow-xl hover:-translate-y-1"><ArrowDown className="w-4 h-4 mr-2" />Barang Keluar</Button>
+                <Button className="bg-red-600 hover:bg-red-700 text-white font-bold px-6 py-3 rounded-xl"><ArrowDown className="w-4 h-4 mr-2" />Barang Keluar</Button>
               </DialogTrigger>
               <DialogContent className="bg-white">
                 <DialogHeader><DialogTitle>Catat Barang Keluar</DialogTitle></DialogHeader>
-                 <div className="grid gap-4 py-4">
-                  <Combobox options={productOptions} onSelect={(val) => setStockChangeData(prev => ({...prev, product_id: val}))} placeholder="Pilih Produk..." />
+                <div className="grid gap-4 py-4">
+                  <Combobox 
+                    value={stockChangeData.product_id}
+                    options={productOptions} 
+                    onSelect={(val) => setStockChangeData(prev => ({...prev, product_id: val}))} 
+                    placeholder="Pilih Produk..." 
+                  />
                   <Input type="number" placeholder="Jumlah" value={stockChangeData.quantity} onChange={(e) => setStockChangeData(prev => ({...prev, quantity: e.target.value}))} />
                 </div>
                 <DialogFooter>
@@ -1149,8 +1390,9 @@ const renderInventory = () => {
                 </DialogFooter>
               </DialogContent>
             </Dialog>
+
           </div>
-        </div>      
+        </div>
         {/* Kartu Summary Stok */}
        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           {[
@@ -1259,42 +1501,34 @@ const renderProducts = () => (
       <div className="bg-white rounded-2xl border-2 border-gray-200 shadow-2xl">
         <div className="p-8">
           <h4 className="text-xl font-bold text-black mb-6">Daftar Produk</h4>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          
+          {/* PERUBAHAN UTAMA: DARI GRID MENJADI LIST */}
+          <div className="flex flex-col gap-2">
             {loadingProducts ? <p>Memuat produk...</p> : products.map((product) => (
-              <Card 
-                key={product.id} 
-                // Saat kartu diklik, hapus status "baru"
-                onClick={() => newlyAddedProductId === product.id && setNewlyAddedProductId(null)}
-                className="border border-gray-200 hover:shadow-lg transition-all duration-200 flex flex-col relative"
-              >
-                {/* --- INDIKATOR PRODUK BARU --- */}
-                {product.id === newlyAddedProductId && (
-                  <span className="absolute top-2 right-2 bg-green-500 text-white text-xs font-bold px-2 py-1 rounded-full animate-pulse">
-                    Baru!
-                  </span>
-                )}
-            <CardContent className="p-4 flex flex-col flex-grow">
-                  <div className="flex-grow">
-                    <div className="flex justify-between items-start mb-2">
-                      <h5 className="font-bold text-black pr-4">{product.nama_produk}</h5>
-                      {/* --- TAMPILKAN KATEGORI DI SINI --- */}
-                      {product.kategori && (
-                        <span className="text-xs bg-gray-100 text-gray-800 px-2 py-1 rounded-full whitespace-nowrap">
-                          {product.kategori}
-                        </span>
-                      )}
+              <div key={product.id} className="flex items-center p-3 gap-4 rounded-lg hover:bg-gray-50">
+                <div className="relative w-16 h-16 rounded-md overflow-hidden bg-gray-100 flex-shrink-0">
+                  {product.image_url ? (
+                    <Image src={product.image_url} alt={product.nama_produk} layout="fill" objectFit="cover" />
+                  ) : (
+                    <div className="flex items-center justify-center h-full text-gray-300"><Package className="h-8 w-8"/></div>
+                  )}
+                </div>
+
+                {/* Bagian Detail Produk */}
+                <div className="flex-grow grid grid-cols-3 items-center gap-4">
+                    {/* Info Nama & Kategori */}
+                    <div>
+                        <p className="font-bold text-base text-black">{product.nama_produk}</p>
+                        {product.kategori && <span className="text-xs bg-gray-100 text-gray-800 px-2 py-1 rounded-full">{product.kategori}</span>}
                     </div>
-                    <p className="text-gray-600 text-sm mb-3">Stok: {product.stok}</p>
-                    <p className="text-lg font-bold text-orange-600 mb-4">
-                      Rp {product.harga.toLocaleString('id-ID')}
-                    </p>
-                  </div>
-                  <div className="flex justify-end items-center space-x-2 mt-auto">
-                    {/* --- TOMBOL +STOK SELALU MUNCUL --- */}
-                    <Button onClick={() => handleAddStockClick(product)} size="sm" className="bg-green-600 hover:bg-green-700 text-white font-bold">
-                      <Plus className="w-4 h-4 mr-1" /> Stok
-                    </Button>
-                    <Button onClick={() => handleEditClick(product)} variant="outline" size="sm">Edit</Button>
+                    {/* Info Stok & Harga */}
+                    <div>
+                        <p className="text-gray-600 text-sm">Stok: {product.stok}</p>
+                        <p className="text-lg font-bold text-orange-600">Rp {Number(product.harga).toLocaleString('id-ID')}</p>
+                    </div>
+                    <div className="flex justify-end gap-2">
+                        <Button onClick={() => handleAddStockClick(product)} size="sm" className="bg-green-600 hover:bg-green-700"><Plus className="w-4 h-4 mr-1" /> Stok</Button>
+                        <Button onClick={() => handleEditClick(product)} variant="outline" size="sm">Edit</Button>
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
                         <Button variant="destructive" size="sm">Hapus</Button>
@@ -1312,16 +1546,16 @@ const renderProducts = () => (
                         </AlertDialogFooter>
                       </AlertDialogContent>
                     </AlertDialog>
-                  </div>
-                </CardContent>
-              </Card>
+                    </div>
+                </div>
+              </div>
             ))}
           </div>
         </div>
       </div>
     </div>
   </>
-)
+);
   
 
 const renderCustomers = () => {
@@ -1514,250 +1748,193 @@ const renderCustomers = () => {
 };
 
 const renderReports = () => {
-  // FUNGSI INI DILENGKAPI AGAR TOMBOL SHORTCUT BERFUNGSI
-  const handleShortcutClick = (period: 'week' | 'month') => {
-    const end = new Date();
-    const start = new Date();
-    let title = "";
-
-    if (period === 'week') {
-      start.setDate(end.getDate() - 7);
-      title = `Ringkasan 7 Hari Terakhir`;
-    } else { // month
-      start.setDate(1); // Set ke tanggal 1 bulan ini
-      title = `Ringkasan Bulan Ini`;
-    }
-    
-    start.setHours(0,0,0,0);
-    end.setHours(23,59,59,999);
-
-    setDateRange({ from: start, to: end });
-    setReportTitle(title);
-    fetchTransactionsByDate(start, end);
-    // Kosongkan data laporan produk jika ada
-    setProductReportData([]); 
-  };
-  
-  // FUNGSI INI DIPINDAHKAN KE SCOPE YANG BENAR (DI LUAR handleShortcutClick)
-  const handleProductReportClick = async () => {
-    if (!dateRange?.from || !dateRange?.to) return alert("Pilih rentang tanggal dulu.");
-    
-    setReportTitle(`Laporan Produk dari ${format(dateRange.from, "d MMM")} - ${format(dateRange.to, "d MMM")}`);
-    
-    // Kosongkan data laporan transaksi agar tidak tumpang tindih
-    setReportData([]);
-    setReportSummary({ revenue: 0, count: 0, average: 0 });
-
-    setLoadingReport(true); // Tambahkan loading state
-    const { data, error } = await supabase.rpc('get_product_report', {
-        start_date: dateRange.from.toISOString(),
-        end_date: dateRange.to.toISOString()
-    });
-
-    if (data) setProductReportData(data);
-    if (error) alert("Gagal mengambil laporan produk: " + error.message);
-    setLoadingReport(false); // Hentikan loading state
-  };
-
-  return (
-    <div className="space-y-8">
-      <div className="flex justify-between items-center">
-        <h3 className="text-2xl font-bold text-black tracking-tight">Laporan Bisnis</h3>
-        <div className="flex gap-3">
-          <Button 
-            onClick={handleExportExcel} 
-            className="bg-green-600 hover:bg-green-700 text-white font-bold px-6 py-3 rounded-xl transition-all duration-300 shadow-lg hover:shadow-xl hover:-translate-y-1"
-          >
-            <FileSpreadsheet className="w-4 h-4 mr-2" />
-            Export Excel
-          </Button>
-          <Button 
-            onClick={handleExportPdf} 
-            className="bg-red-600 hover:bg-red-700 text-white font-bold px-6 py-3 rounded-xl transition-all duration-300 shadow-lg hover:shadow-xl hover:-translate-y-1"
-          >
-            <Download className="w-4 h-4 mr-2" />
-            Download PDF
-          </Button>
+  // --- LOGIKA UNTUK MENYIAPKAN KONTEN LAPORAN (SUDAH BENAR) ---
+  let reportContent;
+  if (!isMounted || loadingReport) {
+    reportContent = (
+      <div className="bg-white rounded-2xl border-2 border-gray-200 shadow-2xl">
+        <div className="p-8 text-center text-gray-500">
+          <h4 className="text-xl font-bold text-black mb-4">{reportTitle}</h4>
+          <Loader2 className="mx-auto h-8 w-8 animate-spin" />
+          <p className="mt-2">Memuat data laporan...</p>
         </div>
       </div>
+    );
+  } else if (activeReportType === 'products') {
+    reportContent = (
+      <div className="bg-white rounded-2xl border-2 border-gray-200 shadow-2xl">
+        <div className="p-8">
 
-      {/* --- KARTU SHORTCUT LAPORAN --- */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <Card
-          onClick={() => {
-            setReportTitle("Ringkasan Penjualan Hari Ini");
-            const start = new Date();
-            start.setHours(0, 0, 0, 0);
-            const end = new Date();
-            end.setHours(23, 59, 59, 999);
-            fetchTransactionsByDate(start, end);
-            setProductReportData([]); 
-          }}
-          className="bg-white border-2 border-gray-200 shadow-xl hover:shadow-2xl transition-all duration-300 cursor-pointer hover:border-orange-400"
-        >
-          <CardContent className="p-6 text-center">
-            <FileText className="w-12 h-12 text-orange-500 mx-auto mb-4" />
-            <h4 className="font-bold text-lg text-black mb-2">Laporan Harian</h4>
-            <p className="text-gray-600 text-sm">Ringkasan penjualan hari ini</p>
-          </CardContent>
-        </Card>
-        <Card
-          onClick={() => handleShortcutClick('week')}
-          className="bg-white border-2 border-gray-200 shadow-xl hover:shadow-2xl transition-all duration-300 cursor-pointer hover:border-gray-400"
-        >
-          <CardContent className="p-6 text-center">
-            <BarChart3 className="w-12 h-12 text-gray-500 mx-auto mb-4" />
-            <h4 className="font-bold text-lg text-black mb-2">Laporan Mingguan</h4>
-            <p className="text-gray-600 text-sm">Analisis 7 hari terakhir</p>
-          </CardContent>
-        </Card>
-        <Card
-          onClick={() => handleShortcutClick('month')}
-          className="bg-white border-2 border-gray-200 shadow-xl hover:shadow-2xl transition-all duration-300 cursor-pointer hover:border-black"
-        >
-          <CardContent className="p-6 text-center">
-            <TrendingUp className="w-12 h-12 text-black mx-auto mb-4" />
-            <h4 className="font-bold text-lg text-black mb-2">Laporan Bulanan</h4>
-            <p className="text-gray-600 text-sm">Performa bulan ini</p>
-          </CardContent>
-        </Card>
-        <Card
-          onClick={handleProductReportClick} // <-- SEKARANG MEMANGGIL FUNGSI YANG BENAR
-          className="bg-white border-2 border-gray-200 shadow-xl hover:shadow-2xl transition-all duration-300 cursor-pointer hover:border-orange-400"
-        >
-          <CardContent className="p-6 text-center">
-            <Receipt className="w-12 h-12 text-orange-500 mx-auto mb-4" />
-            <h4 className="font-bold text-lg text-black mb-2">Laporan Produk</h4>
-            <p className="text-gray-600 text-sm">Analisis per produk</p>
-          </CardContent>
-        </Card>
+<div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+  <div className="text-center">
+    <div className="text-3xl font-black text-black">Rp {productReportSummary.totalRevenue.toLocaleString('id-ID')}</div>
+    <p className="text-gray-600 font-medium">Total Pendapatan</p>
+  </div>
+  <div className="text-center">
+    <div className="text-3xl font-black text-orange-600">{productReportSummary.totalQuantity}</div>
+    <p className="text-gray-600 font-medium">Total Kuantitas Terjual</p>
+  </div>
+  <div className="text-center">
+    <div className="text-3xl font-black text-black truncate">{productReportSummary.bestseller}</div>
+    <p className="text-gray-600 font-medium">Produk Terlaris</p>
+  </div>
+</div>
+        
+        {productReportData.length > 0 ? (
+          <Table><TableHeader><TableRow><TableHead>Nama Produk</TableHead><TableHead>Jumlah Terjual</TableHead><TableHead className="text-right">Total Pendapatan</TableHead></TableRow></TableHeader><TableBody>{productReportData.map((p, i) => (<TableRow key={i}><TableCell>{p.nama_produk}</TableCell><TableCell>{p.total_quantity}</TableCell><TableCell className="text-right font-bold">Rp {p.total_revenue.toLocaleString('id-ID')}</TableCell></TableRow>))}</TableBody></Table>
+        ) : (<div className="text-center text-gray-500 py-8"><p>Tidak ada data produk untuk ditampilkan pada filter yang dipilih.</p></div>)}
       </div>
-      
-      {/* Filter Section */}
-      <div className="bg-white p-4 rounded-2xl border-2 border-gray-200 shadow-xl">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <Button variant="outline" onClick={() => handleShortcutClick('week')}>7 Hari Terakhir</Button>
-            <Button variant="outline" onClick={() => handleShortcutClick('month')}>Bulan Ini</Button>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant={"outline"} className="w-[280px] justify-start text-left font-normal text-gray-600">
-                  <CalendarIcon className="mr-2 h-4 w-4" />
-                  {dateRange?.from ? (dateRange.to ? (`${format(dateRange.from, "LLL dd, y")} - ${format(dateRange.to, "LLL dd, y")}`) : (format(dateRange.from, "LLL dd, y"))) : (<span>Pilih rentang custom</span>)}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
-                <Calendar autoFocus={true} mode="range" defaultMonth={dateRange?.from} selected={dateRange} onSelect={setDateRange} numberOfMonths={2}/>
-              </PopoverContent>
-            </Popover>
-      {categoryList.length > 0 && (
-        <Combobox
-          options={[{ value: 'semua', label: 'Semua Kategori' }, ...categoryList]}
-          onSelect={(value) => setSelectedCategory(value === 'semua' ? null : value)}
-          placeholder="Filter Kategori..."
-        />
-      )}            
-          </div>
-          <div className="flex items-center gap-2">
-<Button onClick={() => {
-  if (dateRange?.from && dateRange?.to) {
-    let title = `Ringkasan dari ${format(dateRange.from, "d MMM yyyy")} - ${format(dateRange.to, "d MMM yyyy")}`;
-    if(selectedCategory) {
-      title += ` (Kategori: ${selectedCategory})`;
-    }
-    setReportTitle(title);
-    
-    // Kirim kategori yang dipilih ke fungsi fetch
-    fetchTransactionsByDate(dateRange.from, dateRange.to, selectedCategory); 
-    
-    setProductReportData([]);
-  } else {
-    alert("Silakan pilih rentang tanggal yang valid.");
-  }
-}} className="bg-orange-500 ...">
-  Terapkan
-</Button>
-          </div>
-        </div>
       </div>
-      
-      {/* Summary & Details Section */}
-      {/* Tampilkan summary transaksi jika ada data transaksi */}
-      {reportData.length > 0 && (
-        <div className="bg-white rounded-2xl border-2 border-gray-200 shadow-2xl">
-          <div className="p-8">
-            <h4 className="text-xl font-bold text-black mb-6">{reportTitle}</h4>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-              <div className="text-center"><div className="text-3xl font-black text-black">{loadingReport ? '...' : `Rp ${reportSummary.revenue.toLocaleString('id-ID')}`}</div><p className="text-gray-600 font-medium">Total Pendapatan</p></div>
-              <div className="text-center"><div className="text-3xl font-black text-orange-600">{loadingReport ? '...' : reportSummary.count}</div><p className="text-gray-600 font-medium">Total Transaksi</p></div>
-              <div className="text-center"><div className="text-3xl font-black text-gray-600">{loadingReport ? '...' : `Rp ${Math.round(reportSummary.average).toLocaleString('id-ID')}`}</div><p className="text-gray-600 font-medium">Rata-rata per Transaksi</p></div>
-            </div>
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader><TableRow className="border-gray-200"><TableHead>Waktu</TableHead><TableHead>ID Transaksi</TableHead><TableHead>Detail Item</TableHead><TableHead className="text-right">Total</TableHead><TableHead className="text-right">Aksi</TableHead></TableRow></TableHeader>
-                <TableBody>
-                  {loadingReport ? <TableRow><TableCell colSpan={4} className="text-center">Memuat...</TableCell></TableRow> :
-                    reportData.map((t) => (
-                      <TableRow key={t.nomor_faktur} className="border-gray-200">
-                        <TableCell>{new Date(t.created_at).toLocaleString('id-ID', {day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'})}</TableCell>
-                        <TableCell>#{t.nomor_faktur}</TableCell>
-                        <TableCell>{t.items.map((item: any) => `${item.nama_produk} (x${item.quantity})`).join(', ')}</TableCell>
-                        <TableCell className="text-right font-bold">Rp {t.total_amount.toLocaleString('id-ID')}</TableCell>
-                        <TableCell className="text-right"> {/* <-- SEL BARU */}
-                        <Button variant="outline" size="sm" onClick={() => handleReprintClick(t)} className="text-purple-600 border-purple-300 hover:bg-purple-50 hover:text-purple-700">
-                        Cetak
-                      </Button>
-                      </TableCell>
-                      </TableRow>
-                    ))}
-                </TableBody>
-              </Table>
-            </div>
+    );
+  } else if (activeReportType === 'transactions' && reportData.length > 0) {
+    reportContent = (
+      <div className="bg-white rounded-2xl border-2 border-gray-200 shadow-2xl">
+        <div className="p-8">
+          <h4 className="text-xl font-bold text-black mb-6">{reportTitle}</h4>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+            <div className="text-center"><div className="text-3xl font-black text-black">Rp {reportSummary.revenue.toLocaleString('id-ID')}</div><p className="text-gray-600 font-medium">Total Pendapatan</p></div>
+            <div className="text-center"><div className="text-3xl font-black text-orange-600">{reportSummary.count}</div><p className="text-gray-600 font-medium">Total Transaksi</p></div>
+            <div className="text-center"><div className="text-3xl font-black text-gray-600">Rp {Math.round(reportSummary.average).toLocaleString('id-ID')}</div><p className="text-gray-600 font-medium">Rata-rata per Transaksi</p></div>
           </div>
-        </div>
-      )}
-      
-      {/* Tampilkan laporan produk jika ada data produk */}
-      {productReportData.length > 0 && (
-        <div className="bg-white rounded-2xl border-2 border-gray-200 shadow-2xl">
-          <div className="p-8">
-            <h4 className="text-xl font-bold text-black mb-6">{reportTitle}</h4>
+          <div className="overflow-x-auto">
             <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Nama Produk</TableHead>
-                  <TableHead>Jumlah Terjual</TableHead>
-                  <TableHead className="text-right">Total Pendapatan</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loadingReport ? <TableRow><TableCell colSpan={3} className="text-center">Memuat...</TableCell></TableRow> : 
-                 productReportData.map((prod, i) => (
-                  <TableRow key={i}>
-                    <TableCell className="font-semibold">{prod.nama_produk}</TableCell>
-                    <TableCell>{prod.total_quantity}</TableCell>
-                    <TableCell className="text-right font-bold">Rp {prod.total_revenue.toLocaleString('id-ID')}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
+              <TableHeader><TableRow><TableHead>Waktu</TableHead><TableHead>ID Transaksi</TableHead><TableHead>Detail</TableHead><TableHead className="text-right">Total</TableHead><TableHead>Aksi</TableHead></TableRow></TableHeader>
+              <TableBody>{reportData.map((t) => (<TableRow key={t.nomor_faktur || t.id}><TableCell>{new Date(t.created_at).toLocaleString('id-ID')}</TableCell><TableCell>#{t.nomor_faktur}</TableCell><TableCell>{t.items.map((i:any) => `${i.nama_produk} (x${i.quantity})`).join(', ')}</TableCell><TableCell className="text-right font-bold">Rp {t.total_amount.toLocaleString('id-ID')}</TableCell><TableCell className="text-right"><Button size="sm" variant="outline" onClick={() => handleReprintClick(t)}>Cetak</Button></TableCell></TableRow>))}</TableBody>
             </Table>
           </div>
         </div>
-      )}
+      </div>
+    );
+  } else {
+    reportContent = (
+      <div className="bg-white rounded-2xl border-2 border-gray-200 shadow-2xl">
+        <div className="p-8 text-center text-gray-500">
+          <h4 className="text-xl font-bold text-black mb-4">{reportTitle}</h4>
+          <p>Tidak ada data untuk ditampilkan pada rentang tanggal yang dipilih.</p>
+        </div>
+      </div>
+    );
+  }
+  
+  return (
+    <div className="space-y-8">
+      {/* --- UI ASLI ANDA DIKEMBALIKAN --- */}
+      <div className="flex justify-between items-center">
+        <h3 className="text-2xl font-bold text-black tracking-tight">Laporan Bisnis</h3>
+        <div className="flex gap-3">
+          <Button onClick={handleExportExcel} className="bg-green-600 hover:bg-green-700 text-white font-bold px-6 py-3 rounded-xl transition-all duration-300 shadow-lg hover:shadow-xl hover:-translate-y-1"><FileSpreadsheet className="w-4 h-4 mr-2" />Export Excel</Button>
+          <Button onClick={handleExportPdf} className="bg-red-600 hover:bg-red-700 text-white font-bold px-6 py-3 rounded-xl transition-all duration-300 shadow-lg hover:shadow-xl hover:-translate-y-1"><Download className="w-4 h-4 mr-2" />Download PDF</Button>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <Card onClick={() => {
+            const start = new Date(); start.setHours(0,0,0,0);
+            const end = new Date(); end.setHours(23,59,59,999);
+            setActiveReportType('transactions');
+            // FITUR BARU: Judul dinamis dengan tanggal
+            setReportTitle(`Ringkasan Penjualan Hari Ini (${format(start, "d MMM")})`);
+            setDateRange({ from: start, to: end });
+          }} className="bg-white border-2 border-gray-200 shadow-xl hover:shadow-2xl transition-all duration-300 cursor-pointer hover:border-orange-400"><CardContent className="p-6 text-center"><FileText className="w-12 h-12 text-orange-500 mx-auto mb-4" /><h4 className="font-bold text-lg text-black mb-2">Laporan Harian</h4><p className="text-gray-600 text-sm">Ringkasan penjualan hari ini</p></CardContent></Card>
+        <Card onClick={() => {
+            const start = new Date(); start.setDate(start.getDate() - 7); start.setHours(0,0,0,0);
+            const end = new Date(); end.setHours(23,59,59,999);
+            setActiveReportType('transactions');
+            // FITUR BARU: Judul dinamis dengan tanggal
+            setReportTitle(`Ringkasan 7 Hari Terakhir (${format(start, "d MMM")} - ${format(end, "d MMM")})`);
+            setDateRange({ from: start, to: end });
+          }} className="bg-white border-2 border-gray-200 shadow-xl hover:shadow-2xl transition-all duration-300 cursor-pointer hover:border-gray-400"><CardContent className="p-6 text-center"><BarChart3 className="w-12 h-12 text-gray-500 mx-auto mb-4" /><h4 className="font-bold text-lg text-black mb-2">Laporan Mingguan</h4><p className="text-gray-600 text-sm">Analisis 7 hari terakhir</p></CardContent></Card>
+        <Card onClick={() => {
+            const start = new Date(); start.setDate(1); start.setHours(0,0,0,0);
+            const end = new Date(); end.setHours(23,59,59,999);
+            setActiveReportType('transactions');
+            // FITUR BARU: Judul dinamis dengan tanggal
+            setReportTitle(`Ringkasan Bulan Ini (${format(start, "MMMM yyyy")})`);
+            setDateRange({ from: start, to: end });
+          }} className="bg-white border-2 border-gray-200 shadow-xl hover:shadow-2xl transition-all duration-300 cursor-pointer hover:border-black"><CardContent className="p-6 text-center"><TrendingUp className="w-12 h-12 text-black mx-auto mb-4" /><h4 className="font-bold text-lg text-black mb-2">Laporan Bulanan</h4><p className="text-gray-600 text-sm">Performa bulan ini</p></CardContent></Card>
+        <Card onClick={() => {
+            setSelectedCategory(null);
+            setActiveReportType('products');
+            // FITUR BARU: Judul dinamis dengan tanggal
+            if (dateRange?.from && dateRange.to) {
+                setReportTitle(`Laporan Produk (${format(dateRange.from, "d MMM")} - ${format(dateRange.to, "d MMM")})`);
+            } else {
+                setReportTitle(`Laporan Produk`);
+            }
+            setComboboxKey(Date.now());
+          }} className="bg-white border-2 border-gray-200 shadow-xl hover:shadow-2xl transition-all duration-300 cursor-pointer hover:border-orange-400"><CardContent className="p-6 text-center"><Receipt className="w-12 h-12 text-orange-500 mx-auto mb-4" /><h4 className="font-bold text-lg text-black mb-2">Laporan Produk</h4><p className="text-gray-600 text-sm">Analisis per produk</p></CardContent></Card>
+      </div>
 
-      {/* Tampilkan pesan jika tidak ada data sama sekali */}
-      {reportData.length === 0 && productReportData.length === 0 && (
-          <div className="bg-white rounded-2xl border-2 border-gray-200 shadow-2xl">
-              <div className="p-8 text-center text-gray-500">
-                  <h4 className="text-xl font-bold text-black mb-4">{reportTitle}</h4>
-                  <p>Tidak ada data untuk ditampilkan pada rentang tanggal yang dipilih.</p>
-                  <p>Silakan pilih laporan atau rentang tanggal yang lain.</p>
-              </div>
-          </div>
-      )}
+       <div className="flex justify-center">
+  {/* Div ini yang akan menjadi frame ringkas */}
+  <div className="inline-flex flex-wrap items-center gap-3 p-2 rounded-2xl border bg-white shadow-md">
+          
+  {/* Grup Filter Tanggal */}
+  <Button 
+    variant={reportTitle.includes('3 Bulan') ? 'default' : 'outline'}
+    onClick={() => {
+      const end = new Date();
+      const start = new Date();
+      start.setMonth(start.getMonth() - 3);
+      start.setHours(0,0,0,0);
+      end.setHours(23,59,59,999);
+      setActiveReportType('transactions');
+      setReportTitle(`Ringkasan 3 Bulan Terakhir (${format(start, "d MMM")} - ${format(end, "d MMM")})`);
+      setDateRange({ from: start, to: end });
+    }}
+  >
+    3 Bulan
+  </Button>
+  <Button 
+    variant={reportTitle.includes('6 Bulan') ? 'default' : 'outline'}
+    onClick={() => {
+      const end = new Date();
+      const start = new Date();
+      start.setMonth(start.getMonth() - 6);
+      start.setHours(0,0,0,0);
+      end.setHours(23,59,59,999);
+      setActiveReportType('transactions');
+      setReportTitle(`Ringkasan 6 Bulan Terakhir (${format(start, "d MMM")} - ${format(end, "d MMM")})`);
+      setDateRange({ from: start, to: end });
+    }}
+  >
+    6 Bulan
+  </Button>
+  <Popover>
+    <PopoverTrigger asChild>
+      <Button variant={"outline"} className="w-auto justify-start text-left font-normal text-gray-600">
+        <CalendarIcon className="mr-2 h-4 w-4" />
+        {dateRange?.from ? (`${format(dateRange.from, "LLL dd, y")} - ${format(dateRange.to || dateRange.from, "LLL dd, y")}`) : (<span>Pilih tanggal</span>)}
+      </Button>
+    </PopoverTrigger>
+    <PopoverContent className="w-auto p-0" align="start"><Calendar mode="range" selected={dateRange} onSelect={setDateRange} numberOfMonths={2} /></PopoverContent>
+  </Popover>
+
+    {/* Filter Kategori */}
+  <div className="w-full md:w-60">
+    <Combobox
+      key={comboboxKey}
+      disabled={activeReportType !== 'products'}
+      options={[{ value: 'semua', label: 'Semua Kategori' }, ...categoryList]}
+      onSelect={(value) => setSelectedCategory(value === 'semua' ? null : value)}
+      placeholder="Filter Kategori..."
+    />
+  </div>
+
+    {/* Tombol Reset */}
+    <Button onClick={handleResetFilters} variant="ghost" className="hover:bg-red-100 hover:text-red-800">
+      Reset
+    </Button>
+  </div>
+</div>
+
+        {/* Konten Laporan */}                
+      <div className="bg-white rounded-xl">
+           <CardContent>{reportContent}</CardContent>
+      </div>
     </div>
   );
 };
+  
 
   const renderAnalytics = () => (
     <div className="space-y-8">
@@ -1937,6 +2114,13 @@ const renderSettings = () => {
     case 'loyalty':
     return <LoyaltySettings profile={profile} onBack={() => setActiveSetting('main')} refreshProfileData={refreshProfileData} />;
     
+    case 'printer':
+    return <PrinterSettings 
+            profile={profile} 
+            onBack={() => setActiveSetting('main')} 
+            onProfileUpdate={refreshProfileData} // <-- TAMBAHKAN INI
+         />;
+
     default: // Tampilan utama pengaturan
       return (
         <div className="space-y-8">
@@ -1967,12 +2151,15 @@ const renderSettings = () => {
             </Card>
 
             {/* Kartu-kartu lainnya masih statis untuk saat ini */}
-            <Card className="bg-white border-2 border-gray-200 shadow-xl hover:shadow-2xl transition-all duration-300 cursor-pointer">
+            <Card 
+              onClick={() => setActiveSetting('printer')} // <-- TAMBAHKAN INI
+              className="bg-white border-2 border-gray-200 shadow-xl hover:shadow-2xl transition-all duration-300 cursor-pointer hover:border-orange-500"
+            >
               <CardContent className="p-6 text-center">
-                <Printer className="w-12 h-12 text-gray-500 mx-auto mb-4" />
-                <h4 className="font-bold text-lg text-black mb-2">Pengaturan Printer</h4>
-                <p className="text-gray-600 text-sm">Konfigurasi printer kasir</p>
-              </CardContent>
+              <Printer className="w-12 h-12 text-gray-500 mx-auto mb-4" />
+              <h4 className="font-bold text-lg text-black mb-2">Pengaturan Printer</h4>
+              <p className="text-gray-600 text-sm">Konfigurasi printer kasir</p>
+            </CardContent>
             </Card>
             <Card className="bg-white border-2 border-gray-200 shadow-xl hover:shadow-2xl transition-all duration-300 cursor-pointer">
               <CardContent className="p-6 text-center">
@@ -2179,7 +2366,16 @@ const renderSettings = () => {
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="kategori" className="text-right text-gray-800">Kategori</Label>
               <Input id="kategori" value={productFormData.kategori} onChange={handleInputChange} className="col-span-3" placeholder="Contoh: Minuman, Makanan" />
-            </div>            
+            </div>   
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="gambar_produk" className="text-right">Gambar</Label>
+            <div className="col-span-3">
+              <Input id="gambar_produk" name="gambar_produk" type="file" />
+                <p className="text-xs text-muted-foreground mt-1.5">
+                  Format: JPG, WebP, PNG. Ukuran maks: 200KB.
+                </p>
+            </div>
+            </div>     
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="harga" className="text-right text-gray-800">Harga</Label>
               <Input id="harga" type="number" value={productFormData.harga} onChange={handleInputChange} className="col-span-3" required />
@@ -2231,3 +2427,7 @@ const renderSettings = () => {
     )
   }
 }
+function handleShortcutClick(arg0: string) {
+  throw new Error("Function not implemented.")
+}
+
