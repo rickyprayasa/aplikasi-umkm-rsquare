@@ -8,8 +8,8 @@ import { toPng } from 'html-to-image';
 interface ReceiptPreviewDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  transaction: any;
-  profile: any;
+  transaction: { items: Array<{ quantity: number; nama_produk: string; harga: number; }>; created_at: string; total_amount: number; };
+  profile: { printer_mode?: string; store_name?: string; full_name?: string; };
 }
 
 export default function ReceiptPreviewDialog({ isOpen, onClose, transaction, profile }: ReceiptPreviewDialogProps) {
@@ -17,7 +17,7 @@ export default function ReceiptPreviewDialog({ isOpen, onClose, transaction, pro
 
   if (!transaction) return null;
 
-  const totalItems = transaction.items.reduce((sum: number, item: any) => sum + item.quantity, 0);
+  const totalItems = transaction.items.reduce((sum: number, item: { quantity: number; }) => sum + item.quantity, 0);
 
   const handlePrint = async () => {
     if (receiptRef.current === null) return;
@@ -40,7 +40,7 @@ export default function ReceiptPreviewDialog({ isOpen, onClose, transaction, pro
           <div>
       `;
 
-      transaction.items.forEach((item: any) => {
+      transaction.items.forEach((item: { nama_produk: string; quantity: number; harga: number; }) => {
         receiptHtml += `
           <div style="margin-bottom: 4px;">
             <div>${item.nama_produk}</div>
@@ -114,7 +114,7 @@ export default function ReceiptPreviewDialog({ isOpen, onClose, transaction, pro
             </div>
             <hr className="border-t border-dashed border-black my-2" />
             <div>
-              {transaction.items.map((item: any, index: number) => (
+              {transaction.items.map((item: { nama_produk: string; quantity: number; harga: number; }, index: number) => (
                 <div key={index} className="grid grid-cols-12 gap-1 my-1">
                   <div className="col-span-12">{item.nama_produk}</div>
                   <div className="col-span-3">{item.quantity}x</div>

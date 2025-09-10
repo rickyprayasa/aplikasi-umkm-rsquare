@@ -22,8 +22,8 @@ interface TransactionData { items: CartItem[]; total_amount: number; customer_id
 interface NewTransactionDialogProps {
   products: Product[];
   customers: Customer[];
-  profile: { id: string; store_name?: string; store_address?: string; store_phone?: string; };
-  onSave: (transactionData: TransactionData) => Promise<any>;
+  profile: { id: string; store_name?: string; store_address?: string; store_phone?: string; loyalty_enabled?: boolean; loyalty_threshold?: number; };
+  onSave: (transactionData: TransactionData) => Promise<unknown>;
   onClose: () => void;
 }
 
@@ -37,7 +37,7 @@ export default function NewTransactionDialog({ products, customers, profile, onS
   const [customerTransactionCount, setCustomerTransactionCount] = useState(0);
   const [searchTerm, setSearchTerm] = useState("");
   const [activeCategory, setActiveCategory] = useState("Semua");
-  const [transactionSuccessData, setTransactionSuccessData] = useState<any>(null);
+  const [transactionSuccessData, setTransactionSuccessData] = useState<unknown>(null);
 
   // --- Logika Kalkulasi ---
   const { subTotal, discountApplied, total } = useMemo(() => {
