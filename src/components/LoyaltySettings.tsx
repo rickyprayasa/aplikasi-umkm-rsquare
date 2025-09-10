@@ -11,7 +11,7 @@ import { Switch } from "@/components/ui/switch"; // Import baru
 import { ArrowLeft, Loader2, Save } from 'lucide-react';
 
 interface LoyaltySettingsProps {
-  profile: any;
+  profile: { id: string; loyalty_enabled?: boolean; loyalty_threshold?: number; loyalty_discount_percent?: number; };
   onBack: () => void;
   refreshProfileData: () => void; // Fungsi untuk refresh data profil
 }

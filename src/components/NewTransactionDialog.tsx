@@ -17,12 +17,12 @@ import { cn } from "@/lib/utils";
 interface Product { id: number; nama_produk: string; harga: number; stok: number; kategori: string; image_url?: string; }
 interface CartItem extends Product { quantity: number; }
 interface Customer { id: number; name: string; }
-interface TransactionData { items: any[]; total_amount: number; customer_id: number | null; }
+interface TransactionData { items: CartItem[]; total_amount: number; customer_id: number | null; }
 
 interface NewTransactionDialogProps {
   products: Product[];
   customers: Customer[];
-  profile: any;
+  profile: { id: string; store_name?: string; store_address?: string; store_phone?: string; };
   onSave: (transactionData: TransactionData) => Promise<any>;
   onClose: () => void;
 }
