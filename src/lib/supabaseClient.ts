@@ -24,7 +24,13 @@ if (supabaseUrl && supabaseAnonKey) {
     }),
     rpc: () => Promise.resolve({ data: null, error: null }),
     auth: {
-      signOut: () => Promise.resolve({ error: null })
+      signOut: () => Promise.resolve({ error: null }),
+      onAuthStateChange: (callback) => {
+        // Call the callback immediately with null session
+        callback('SIGNED_OUT', null)
+        // Return a subscription object with unsubscribe method
+        return { data: { subscription: { unsubscribe: () => {} } } }
+      }
     },
     storage: {
       from: () => ({
