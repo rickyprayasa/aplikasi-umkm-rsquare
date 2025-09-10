@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Loader2, Save } from 'lucide-react';
 
 interface UserProfileProps {
   session: Session | null;
@@ -89,7 +89,8 @@ export default function UserProfile({ session, onBack }: UserProfileProps) {
             {message && <p className={`text-sm ${message.includes('Gagal') ? 'text-red-500' : 'text-green-600'}`}>{message}</p>}
             <CardFooter className="px-0 pt-4">
               <Button type="submit" disabled={loading}>
-                {loading ? 'Menyimpan...' : 'Simpan Perubahan'}
+                {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+                Simpan Perubahan
               </Button>
             </CardFooter>
           </form>

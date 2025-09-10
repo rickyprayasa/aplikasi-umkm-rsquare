@@ -6,6 +6,7 @@ import type { Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabaseClient';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Loader2, Save } from 'lucide-react';
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ArrowLeft } from 'lucide-react';
@@ -95,7 +96,8 @@ export default function StoreProfile({ session, onBack, onProfileUpdate }: Store
               {message && <p className={`text-sm ${message.includes('Gagal') ? 'text-red-500' : 'text-green-600'}`}>{message}</p>}
               <CardFooter className="px-0 pt-4">
                 <Button type="submit" disabled={loading}>
-                  {loading ? 'Menyimpan...' : 'Simpan Profil Toko'}
+                  {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+                  Simpan Profil Toko
                 </Button>
               </CardFooter>
             </form>

@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ArrowLeft, Loader2 } from 'lucide-react';
+import { ArrowLeft, Loader2, Save } from 'lucide-react';
 import { QRCodeSVG as QRCode } from 'qrcode.react';
 
 interface SecuritySettingsProps {
@@ -116,7 +116,7 @@ export default function SecuritySettings({ onBack }: SecuritySettingsProps) {
             <div className="space-y-2"><Label htmlFor="newPassword">Password Baru</Label><Input id="newPassword" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Minimal 6 karakter" required/></div>
             <div className="space-y-2"><Label htmlFor="confirmPassword">Konfirmasi Password Baru</Label><Input id="confirmPassword" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required/></div>
             {passwordMessage && <p className={`text-sm ${passwordMessage.includes('Gagal') ? 'text-red-500' : 'text-green-600'}`}>{passwordMessage}</p>}
-            <CardFooter className="px-0 pt-4"><Button type="submit" disabled={passwordLoading}>{passwordLoading ? 'Menyimpan...' : 'Simpan Password Baru'}</Button></CardFooter>
+            <CardFooter className="px-0 pt-4"><Button type="submit" disabled={passwordLoading}>{passwordLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}Simpan Password Baru</Button></CardFooter>
           </form>
         </CardContent>
       </Card>
@@ -143,7 +143,10 @@ export default function SecuritySettings({ onBack }: SecuritySettingsProps) {
                   </div>
                   
                   <div className="space-y-2 text-left"><Label htmlFor="verificationCode">Masukkan Kode Verifikasi 6 Digit</Label><Input id="verificationCode" value={verificationCode} onChange={(e) => setVerificationCode(e.target.value)} placeholder="123456" required /></div>
-                  <Button type="submit" disabled={mfaLoading}>{mfaLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Verifikasi & Aktifkan</Button>
+                  <Button type="submit" disabled={mfaLoading}>
+                    {mfaLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+                    Verifikasi & Aktifkan
+                  </Button>
                 </form>
               ) : (
                 <Button onClick={handleEnrollMfa} disabled={mfaLoading}>{mfaLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Aktifkan 2FA</Button>

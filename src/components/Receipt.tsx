@@ -8,6 +8,18 @@ interface ReceiptProps {
 
 // Gunakan React.forwardRef agar library react-to-print bisa mengakses komponen ini
 export const Receipt = React.forwardRef<HTMLDivElement, ReceiptProps>(({ transaction, profile }, ref) => {
+    const customerName = transaction?.customer?.name;
+
+  let subtotal = transaction?.total_amount;
+  let discountAmount = 0;
+  const discountPercent = profile?.loyalty_discount_percent;
+
+  if (transaction?.metadata?.applied_discount) {
+    // Hitung ulang subtotal dan diskon dari total akhir
+    subtotal = transaction.total_amount / (1 - (discountPercent / 100));
+    discountAmount = subtotal - transaction.total_amount;
+  }
+
   return (
     <div ref={ref} className="printable-receipt p-4 bg-white text-black font-mono text-xs">
       {/* Header Struk */}
@@ -22,6 +34,7 @@ export const Receipt = React.forwardRef<HTMLDivElement, ReceiptProps>(({ transac
         <p>No: {transaction?.nomor_faktur || `#${transaction?.id}`}</p>
         <p>Tgl: {new Date(transaction?.created_at).toLocaleString('id-ID')}</p>
         <p>Kasir: {profile?.full_name || 'Admin'}</p>
+        {customerName && <p>Pelanggan: {customerName}</p>}
       </div>
       <hr className="border-dashed border-black my-2"/>
       {/* Daftar Item */}
@@ -37,9 +50,25 @@ export const Receipt = React.forwardRef<HTMLDivElement, ReceiptProps>(({ transac
       </div>
       <hr className="border-dashed border-black my-2"/>
       {/* Total */}
-      <div className="flex justify-between font-bold">
-        <span>TOTAL</span>
-        <span>Rp {transaction?.total_amount?.toLocaleString('id-ID')}</span>
+      <div className="space-y-1">
+        {/* --- TAMPILKAN RINCIAN DISKON JIKA ADA --- */}
+        {discountAmount > 0 ? (
+          <>
+            <div className="flex justify-between">
+              <span>Subtotal</span>
+              <span>Rp {subtotal.toLocaleString('id-ID')}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Diskon ({discountPercent}%)</span>
+              <span>- Rp {discountAmount.toLocaleString('id-ID')}</span>
+            </div>
+          </>
+        ) : null}
+        
+        <div className="flex justify-between font-bold text-sm pt-1">
+          <span>TOTAL</span>
+          <span>Rp {transaction?.total_amount?.toLocaleString('id-ID')}</span>
+        </div>
       </div>
       <hr className="border-dashed border-black my-2"/>
       {/* Footer Struk */}
