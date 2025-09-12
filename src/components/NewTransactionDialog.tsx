@@ -1,11 +1,10 @@
-"use client";
 
 "use client";
 import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Combobox } from "@/components/ui/combobox";
-import { X, Plus, Minus, Loader2, Package, AlertTriangle } from "lucide-react"; // Import AlertTriangle
+import { X, Plus, Minus, Loader2, Package, AlertTriangle } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { supabase } from '@/lib/supabaseClient';
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -13,7 +12,6 @@ import Image from 'next/image';
 import ReceiptPreviewDialog from "./ReceiptPreviewDialog";
 import { cn } from "@/lib/utils";
 
-// --- Tipe Data ---
 interface Product { id: number; nama_produk: string; harga: number; stok: number; kategori: string; image_url?: string; }
 interface CartItem extends Product { quantity: number; }
 interface Customer { id: number; name: string; }
@@ -22,8 +20,8 @@ interface TransactionData { items: CartItem[]; total_amount: number; customer_id
 interface NewTransactionDialogProps {
   products: Product[];
   customers: Customer[];
-  profile: { id: string; store_name?: string; store_address?: string; store_phone?: string; loyalty_enabled?: boolean; loyalty_threshold?: number; };
-  onSave: (transactionData: TransactionData) => Promise<unknown>;
+  profile: { id: string; store_name?: string; store_address?: string; store_phone?: string; loyalty_enabled?: boolean; loyalty_threshold?: number; loyalty_discount_percent?: number; };
+  onSave: (transactionData: TransactionData) => Promise<TransactionData | null>;
   onClose: () => void;
 }
 
@@ -37,25 +35,27 @@ export default function NewTransactionDialog({ products, customers, profile, onS
   const [customerTransactionCount, setCustomerTransactionCount] = useState(0);
   const [searchTerm, setSearchTerm] = useState("");
   const [activeCategory, setActiveCategory] = useState("Semua");
-  const [transactionSuccessData, setTransactionSuccessData] = useState<unknown>(null);
+  const [transactionSuccessData, setTransactionSuccessData] = useState<TransactionData | null>(null);
 
   // --- Logika Kalkulasi ---
   const { subTotal, discountApplied, total } = useMemo(() => {
     const subTotal = cart.reduce((sum, item) => sum + (item.harga * item.quantity), 0);
     const isLoyaltyEnabled = profile?.loyalty_enabled;
-    const threshold = profile?.loyalty_threshold;
+    const threshold = profile?.loyalty_threshold ?? 0;
+    const discountPercent = profile?.loyalty_discount_percent ?? 0;
     const isRewardTransaction = isLoyaltyEnabled && selectedCustomerId && threshold > 0 && (customerTransactionCount + 1) % threshold === 0;
 
     if (isRewardTransaction) {
-      const discountAmount = subTotal * (profile.loyalty_discount_percent / 100);
+      const discountAmount = subTotal * (discountPercent / 100);
       return { subTotal, discountApplied: discountAmount, total: subTotal - discountAmount };
     }
     return { subTotal, discountApplied: 0, total: subTotal };
   }, [cart, profile, customerTransactionCount, selectedCustomerId]);
-  
+
   // --- Data Fetching & Filtering ---
   useEffect(() => {
     const fetchCustomerCount = async () => {
+      if (!supabase) return;
       if (selectedCustomerId) {
         const { data } = await supabase.rpc('get_customer_transaction_count', { p_customer_id: Number(selectedCustomerId) });
         if (typeof data === 'number') setCustomerTransactionCount(data);
@@ -66,10 +66,10 @@ export default function NewTransactionDialog({ products, customers, profile, onS
     fetchCustomerCount();
   }, [selectedCustomerId]);
 
-  const uniqueCategories = useMemo(() => ["Semua", ...new Set(products.map(p => p.kategori).filter(Boolean))], [products]);
+  const uniqueCategories = useMemo(() => ["Semua", ...new Set(products.map((p: Product) => p.kategori).filter(Boolean))], [products]);
 
   const filteredProducts = useMemo(() => {
-    return products.filter(p => {
+    return products.filter((p: Product) => {
       const matchesCategory = activeCategory === "Semua" || p.kategori === activeCategory;
       const matchesSearch = p.nama_produk.toLowerCase().includes(searchTerm.toLowerCase());
       return matchesCategory && matchesSearch;
@@ -111,7 +111,14 @@ export default function NewTransactionDialog({ products, customers, profile, onS
     const transactionData: TransactionData = {
       total_amount: total,
       customer_id: selectedCustomerId ? Number(selectedCustomerId) : null,
-      items: cart.map(item => ({ product_id: item.id, nama_produk: item.nama_produk, quantity: item.quantity, harga: item.harga, kategori: item.kategori }))
+      items: cart.map(item => ({
+        id: item.id,
+        nama_produk: item.nama_produk,
+        quantity: item.quantity,
+        harga: item.harga,
+        kategori: item.kategori,
+        stok: item.stok
+      }))
     };
     const result = await onSave(transactionData);
     if (result) {
@@ -119,8 +126,8 @@ export default function NewTransactionDialog({ products, customers, profile, onS
     }
     setIsSaving(false);
   };
-  
-  const customerOptions = customers.map(c => ({ value: c.id.toString(), label: c.name }));
+
+  const customerOptions = customers.map((c: Customer) => ({ value: c.id.toString(), label: c.name }));
 
   // --- Tampilan setelah transaksi berhasil ---
   if (transactionSuccessData) {
@@ -132,12 +139,14 @@ export default function NewTransactionDialog({ products, customers, profile, onS
           <Button onClick={resetDialog} variant="outline" size="lg">Buat Transaksi Baru</Button>
           <Button onClick={onClose} size="lg">Tutup</Button>
         </div>
-        <ReceiptPreviewDialog 
-          isOpen={true} 
-          onClose={resetDialog}
-          transaction={transactionSuccessData}
-          profile={profile}
-        />
+        {transactionSuccessData && (
+          <ReceiptPreviewDialog 
+            isOpen={true} 
+            onClose={resetDialog}
+            transaction={transactionSuccessData as any}
+            profile={profile}
+          />
+        )}
       </div>
     );
   }
@@ -145,7 +154,6 @@ export default function NewTransactionDialog({ products, customers, profile, onS
   // --- Tampilan utama form transaksi ---
   return (
     <div className="flex gap-6 h-[75vh] p-1">
-      
       {/* Kolom Kiri: Pilihan Produk */}
       <div className="w-2/3 flex flex-col gap-4">
         {/* Header: Pencarian & Kategori (Ukurannya tetap) */}
@@ -163,7 +171,7 @@ export default function NewTransactionDialog({ products, customers, profile, onS
             ))}
           </div>
         </div>
-        
+
         {/* Konten: Daftar Produk (Mengisi sisa ruang & bisa di-scroll) */}
         <ScrollArea className="flex-grow rounded-lg border min-h-0">
           <div className="flex flex-col">

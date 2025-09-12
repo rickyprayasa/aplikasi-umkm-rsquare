@@ -38,6 +38,11 @@ export default function PrinterSettings({ onBack, profile, onProfileUpdate }: Pr
     if (!profile) return alert("Profil tidak ditemukan.");
     setLoading(true);
 
+    if (!supabase) {
+      alert('Supabase client tidak tersedia.');
+      setLoading(false);
+      return;
+    }
     const { error } = await supabase
       .from('profiles')
       .update({ 

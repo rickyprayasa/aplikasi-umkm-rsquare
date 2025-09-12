@@ -31,6 +31,10 @@ export default function SecuritySettings({ onBack }: SecuritySettingsProps) {
 
   useEffect(() => {
     const checkMfaStatus = async () => {
+      if (!supabase) {
+        setIsMfaEnabled(false);
+        return;
+      }
       const { data } = await supabase.auth.mfa.listFactors();
       setIsMfaEnabled(data && data.totp.length > 0);
     };
@@ -46,6 +50,10 @@ export default function SecuritySettings({ onBack }: SecuritySettingsProps) {
     if (newPassword !== confirmPassword) {
       setPasswordMessage('Password baru dan konfirmasi tidak cocok.'); return;
     }
+    if (!supabase) {
+      setPasswordMessage('Supabase client tidak tersedia.');
+      return;
+    }
     setPasswordLoading(true);
     const { error } = await supabase.auth.updateUser({ password: newPassword });
     if (error) setPasswordMessage(`Gagal memperbarui password: ${error.message}`);
@@ -58,6 +66,10 @@ export default function SecuritySettings({ onBack }: SecuritySettingsProps) {
 
   // --- Fungsi Baru untuk Memulai Proses 2FA ---
   const handleEnrollMfa = async () => {
+    if (!supabase) {
+      setMfaMessage('Supabase client tidak tersedia.');
+      return;
+    }
     setMfaLoading(true);
     setMfaMessage('');
     const { data, error } = await supabase.auth.mfa.enroll({ factorType: 'totp' });
@@ -77,6 +89,11 @@ export default function SecuritySettings({ onBack }: SecuritySettingsProps) {
     setMfaMessage('');
 
     // Pastikan factorId ada sebelum melanjutkan
+    if (!supabase) {
+      setMfaMessage('Supabase client tidak tersedia.');
+      setMfaLoading(false);
+      return;
+    }
     if (!unverifiedFactorId) {
       setMfaMessage('Gagal menemukan faktor otentikasi. Coba mulai ulang proses.');
       setMfaLoading(false);
