@@ -23,4 +23,5 @@ if (typeof window !== 'undefined') {
   });
 }
 
+
 export const supabase = createClient()
