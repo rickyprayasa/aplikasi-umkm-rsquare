@@ -38,6 +38,7 @@ import { Progress } from "@/components/ui/progress";
 import { useMemo } from 'react';
 import { Textarea } from "@/components/ui/textarea";
 import Image from 'next/image';
+import AnimatedDonutChartLogo from '../components/AnimatedDonutChartLogo';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -2272,13 +2273,15 @@ const renderSettings = () => {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-orange-50 font-sans flex">
         <div className={`fixed inset-y-0 left-0 z-50 w-64 bg-white border-r-2 border-gray-200 shadow-2xl transform ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} transition-transform duration-300 ease-in-out lg:translate-x-0`}>
-          <div className="flex items-center justify-between h-20 px-6 border-b-2 border-gray-200">
-            <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 bg-black rounded-xl flex items-center justify-center shadow-lg"><span className="text-white font-bold text-lg">R</span></div>
-              <h1 className="text-2xl font-black bg-gradient-to-r from-black via-gray-700 to-orange-500 bg-clip-text text-transparent tracking-tight">Omzetin</h1>
-            </div>
-            <Button variant="ghost" size="sm" className="lg:hidden" onClick={() => setSidebarOpen(false)}><X className="h-6 w-6" /></Button>
-          </div>
+<div className="flex items-center justify-between h-20 px-6 border-b-2 border-gray-200">
+  <div className="flex items-center space-x-3">
+    {/* LOGO BARU DITARUH DI SINI */}
+    <AnimatedDonutChartLogo />
+    
+    <h1 className="text-2xl font-black bg-gradient-to-r from-black via-gray-700 to-orange-500 bg-clip-text text-transparent tracking-tight">Omzetin</h1>
+  </div>
+  <Button variant="ghost" size="sm" className="lg:hidden" onClick={() => setSidebarOpen(false)}><X className="h-6 w-6" /></Button>
+</div>
           {profile?.store_name && (
             <div className="px-6 py-4 border-b-2 border-gray-200">
             <p className="text-sm text-gray-500">Profil Toko</p>
