@@ -28,6 +28,11 @@ export default function StoreProfile({ session, onBack, onProfileUpdate }: Store
     const fetchProfile = async () => {
       if (!session) return;
       setLoading(true);
+      if (!supabase) {
+        setLoading(false);
+        setMessage('Supabase client tidak tersedia.');
+        return;
+      }
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
@@ -49,6 +54,11 @@ export default function StoreProfile({ session, onBack, onProfileUpdate }: Store
     setMessage('');
     setLoading(true);
 
+    if (!supabase) {
+      setMessage('Supabase client tidak tersedia.');
+      setLoading(false);
+      return;
+    }
     const { error } = await supabase.from('profiles').upsert({
       id: session!.user.id,
       store_name: storeName,

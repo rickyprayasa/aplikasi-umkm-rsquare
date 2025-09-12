@@ -8,8 +8,20 @@ import { toPng } from 'html-to-image';
 interface ReceiptPreviewDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  transaction: { items: Array<{ quantity: number; nama_produk: string; harga: number; }>; created_at: string; total_amount: number; };
-  profile: { printer_mode?: string; store_name?: string; full_name?: string; };
+  transaction: {
+    items: Array<{ quantity: number; nama_produk: string; harga: number; }>;
+    created_at: string;
+    total_amount: number;
+    nomor_faktur?: string;
+    id?: string | number;
+  };
+  profile: {
+    printer_mode?: string;
+    store_name?: string;
+    full_name?: string;
+    address?: string;
+    printer_footer_text?: string;
+  };
 }
 
 export default function ReceiptPreviewDialog({ isOpen, onClose, transaction, profile }: ReceiptPreviewDialogProps) {

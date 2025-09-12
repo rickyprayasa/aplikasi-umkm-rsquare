@@ -37,6 +37,11 @@ export default function LoyaltySettings({ profile, onBack, refreshProfileData }:
     setSaving(true);
     setMessage('');
 
+    if (!supabase) {
+      setMessage('Supabase client tidak tersedia.');
+      setSaving(false);
+      return;
+    }
     const { error } = await supabase
       .from('profiles')
       .update({

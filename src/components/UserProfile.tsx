@@ -25,6 +25,11 @@ export default function UserProfile({ session, onBack }: UserProfileProps) {
     const fetchProfile = async () => {
       if (!session) return;
       setLoading(true);
+      if (!supabase) {
+        setLoading(false);
+        setMessage('Supabase client tidak tersedia.');
+        return;
+      }
       const { data, error } = await supabase
         .from('profiles')
         .select('full_name')
@@ -44,6 +49,11 @@ export default function UserProfile({ session, onBack }: UserProfileProps) {
     setMessage('');
     setLoading(true);
 
+    if (!supabase) {
+      setMessage('Supabase client tidak tersedia.');
+      setLoading(false);
+      return;
+    }
     const { error } = await supabase.from('profiles').upsert({
       id: session!.user.id,
       full_name: fullName,
