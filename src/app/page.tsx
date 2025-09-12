@@ -240,7 +240,7 @@ const getCustomerTier = (transactionCount: number) => {
       } else if (activeSection === 'reports') {
         // Ambil daftar kategori saat masuk ke halaman laporan
         const fetchCategories = async () => {
-          const { data } = await supabase.rpc('get_unique_categories');
+          const { data } = await supabase!.rpc('get_unique_categories');
           if (data) {
             setCategoryList(data.map((cat: any) => ({ value: cat.kategori, label: cat.kategori })));
           }
@@ -261,7 +261,7 @@ const getCustomerTier = (transactionCount: number) => {
       
       if (activeReportType === 'products') {
         setReportData([]);
-        const { data, error } = await supabase.rpc('get_product_report', {
+        const { data, error } = await supabase!.rpc('get_product_report', {
           start_date: dateRange.from ? dateRange.from.toISOString() : "",
           end_date: (dateRange.to ?? dateRange.from ?? new Date()).toISOString(),
           category_in: selectedCategory
@@ -270,7 +270,7 @@ const getCustomerTier = (transactionCount: number) => {
         setProductReportData(data || []);
       } else { // activeReportType === 'transactions'
         setProductReportData([]);
-        const { data, error } = await supabase.rpc('get_filtered_transactions', {
+        const { data, error } = await supabase!.rpc('get_filtered_transactions', {
           start_date_in: dateRange.from ? dateRange.from.toISOString() : "",
           end_date_in: dateRange.to ? dateRange.to.toISOString() : ""
         });
@@ -320,8 +320,8 @@ const handleViewCustomerHistory = async (customer: any) => {
 
   // Panggil kedua fungsi (ambil riwayat & hitung jumlah) secara bersamaan
   const [historyResult, countResult] = await Promise.all([
-    supabase.rpc('get_transactions_by_customer', { p_customer_id: customer.id }),
-    supabase.rpc('get_customer_transaction_count', { p_customer_id: customer.id })
+    supabase!.rpc('get_transactions_by_customer', { p_customer_id: customer.id }),
+    supabase!.rpc('get_customer_transaction_count', { p_customer_id: customer.id })
   ]);
   
   if (historyResult.data) {
@@ -365,7 +365,7 @@ const handleViewCustomerHistory = async (customer: any) => {
 const handleSaveCustomerNotes = async () => {
   if (!viewingCustomer) return;
   setSavingNotes(true);
-  const { error } = await supabase
+  const { error } = await supabase!
     .from('customers')
     .update({ notes: customerNotes })
     .eq('id', viewingCustomer.id);
@@ -388,7 +388,7 @@ const handleSaveCustomerNotes = async () => {
   async function getCustomerSummary() {
     setLoadingSummary(true);
     // Pastikan Anda sudah membuat fungsi 'get_customer_summary' di Supabase
-    const { data, error } = await supabase.rpc('get_customer_summary');
+    const { data, error } = await supabase!.rpc('get_customer_summary');
     if (data) {
       setCustomerSummary(data);
     } else {
@@ -403,14 +403,14 @@ const handleSaveCustomerNotes = async () => {
 
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => { setSession(session) });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => { setSession(session) });
+    supabase!.auth.getSession().then(({ data: { session } }) => { setSession(session) });
+    const { data: { subscription } } = supabase!.auth.onAuthStateChange((_event, session) => { setSession(session) });
     return () => subscription.unsubscribe();
   }, []);
 
   
 async function fetchSalesPrediction() {
-  const { data, error } = await supabase.rpc('get_daily_sales_avg');
+  const { data, error } = await supabase!.rpc('get_daily_sales_avg');
   if (data) {
     setSalesPrediction(data);
   }
@@ -422,7 +422,7 @@ async function fetchSalesPrediction() {
 
 async function getNotifications() {
   setLoadingNotifications(true);
-  const { data, error } = await supabase
+  const { data, error } = await supabase!
     .from('notifications')
     .select('*')
     .order('created_at', { ascending: false }); // Tampilkan yang terbaru di atas
@@ -437,10 +437,10 @@ const handleMarkAsRead = async (id: number) => {
   setNotifications(notifications.map(n => n.id === id ? { ...n, is_read: true } : n));
 
   // Panggil fungsi Supabase di latar belakang
-  await supabase.rpc('mark_notification_as_read', { notification_id: id });
+  await supabase!.rpc('mark_notification_as_read', { notification_id: id });
 
   // Update jumlah notifikasi belum dibaca
-  const { data } = await supabase.rpc('get_unread_notification_count');
+  const { data } = await supabase!.rpc('get_unread_notification_count');
   if (typeof data === 'number') {
     setUnreadCount(data);
   }
@@ -451,7 +451,7 @@ useEffect(() => {
     if (!session) return;
 
     const getUnreadCount = async () => {
-      const { data, error } = await supabase.rpc('get_unread_notification_count');
+      const { data, error } = await supabase!.rpc('get_unread_notification_count');
       if (error) console.error("Error fetching unread count:", error);
       else if (typeof data === 'number') setUnreadCount(data);
     };
@@ -473,7 +473,7 @@ useEffect(() => {
 
   async function getProductSummary() {
     setLoadingProductSummary(true);
-    const { data, error } = await supabase.rpc('get_product_summary');
+    const { data, error } = await supabase!.rpc('get_product_summary');
     if(data) setProductSummary(data);
     if(error) console.error("Error fetching product summary: ", error);
     setLoadingProductSummary(false);
@@ -490,7 +490,7 @@ useEffect(() => {
   useEffect(() => {
     const fetchAllData = async () => {
       if (!session) return;
-      const { data: profileData } = await supabase
+      const { data: profileData } = await supabase!
         .from('profiles')
         .select('*')
         .single();
@@ -508,9 +508,9 @@ async function fetchDashboardData(page = 1) {
     { data: compData },
     { data: transData, count }
   ] = await Promise.all([
-    supabase.rpc('get_restock_recommendations'),
-    supabase.rpc('get_dashboard_comparison'),
-    supabase.from('transactions').select('*', { count: 'exact' }).order('created_at', { ascending: false }).range((page - 1) * ITEMS_PER_PAGE, (page - 1) * ITEMS_PER_PAGE + ITEMS_PER_PAGE - 1)
+    supabase!.rpc('get_restock_recommendations'),
+    supabase!.rpc('get_dashboard_comparison'),
+    supabase!.from('transactions').select('*', { count: 'exact' }).order('created_at', { ascending: false }).range((page - 1) * ITEMS_PER_PAGE, (page - 1) * ITEMS_PER_PAGE + ITEMS_PER_PAGE - 1)
   ]);
 
   // Memperbarui state dengan data yang sudah diambil
@@ -524,7 +524,7 @@ async function fetchDashboardData(page = 1) {
 
   // Sisa dari fungsi fetchDashboardData (tidak berubah)
   const today = new Date().toISOString().slice(0, 10);
-  const { data: todayTransData } = await supabase
+  const { data: todayTransData } = await supabase!
     .from('transactions')
     .select('total_amount, items')
     .gte('created_at', `${today}T00:00:00.000Z`)
@@ -556,7 +556,7 @@ async function fetchDashboardData(page = 1) {
 async function fetchAnalyticsData() {
   setLoadingAnalytics(true);
   // Panggil fungsi baru dengan periode dari state
-  const { data, error } = await supabase.rpc('get_analytics_by_period', { days_period: analyticsPeriod });
+  const { data, error } = await supabase!.rpc('get_analytics_by_period', { days_period: analyticsPeriod });
   if (data) setAnalyticsData(data);
   if (error) console.error("Error fetching analytics data: ", error);
   setLoadingAnalytics(false);
@@ -574,7 +574,7 @@ async function fetchTransactionsByDate(startDate: Date, endDate: Date) {
   setProductReportData([]); // PERUBAHAN: Selalu kosongkan laporan produk
   setReportData([]);
   
-  const { data, error } = await supabase.rpc('get_filtered_transactions', {
+  const { data, error } = await supabase!.rpc('get_filtered_transactions', {
     start_date_in: startDate.toISOString(),
     end_date_in: endDate.toISOString()
   });
@@ -600,7 +600,7 @@ async function fetchTransactionsByDate(startDate: Date, endDate: Date) {
 
   async function getProducts() {
     setLoadingProducts(true)
-    const { data, error } = await supabase.from('products').select('*').order('created_at', { ascending: false })
+    const { data, error } = await supabase!.from('products').select('*').order('created_at', { ascending: false })
     if (data) setProducts(data)
     if (error) console.error('Error fetching products:', error)
     setLoadingProducts(false)
@@ -616,7 +616,7 @@ async function fetchTransactionsByDate(startDate: Date, endDate: Date) {
         case 'products': getProductSummary(); getProducts(); break;
         case 'customers': getCustomerSummary(); getCustomers(); break;
 case 'reports': { // Tambahkan kurung kurawal
-  const { data } = await supabase.rpc('get_unique_categories');
+  const { data } = await supabase!.rpc('get_unique_categories');
   if (data) {
     setCategoryList(data.map((cat: any) => ({ value: cat.kategori, label: cat.kategori })));
   }
@@ -634,7 +634,7 @@ case 'reports': { // Tambahkan kurung kurawal
 
 async function getCustomers() {
   // Pastikan fungsi ini memanggil RPC yang menghitung status
-  const { data, error } = await supabase.rpc('get_customers_with_status'); 
+  const { data, error } = await supabase!.rpc('get_customers_with_status');
   if(data) setCustomers(data);
   if(error) console.error("Error fetching customers: ", error);
 }
@@ -645,7 +645,7 @@ async function getCustomers() {
     if(session) {
       const fetchInitialData = async () => {
         const getUnreadCount = async () => {
-          const { data, error } = await supabase.rpc('get_unread_notification_count');
+          const { data, error } = await supabase!.rpc('get_unread_notification_count');
           if (error) console.error("Error fetching unread count:", error);
           else if (typeof data === 'number') setUnreadCount(data);
         };
@@ -671,7 +671,7 @@ async function getCustomers() {
       
       if (activeReportType === 'products') {
         setReportData([]);
-        const { data, error } = await supabase.rpc('get_product_report', {
+        const { data, error } = await supabase!.rpc('get_product_report', {
           start_date: dateRange.from.toISOString(),
           end_date: dateRange.to.toISOString(),
           category_in: selectedCategory
@@ -680,7 +680,7 @@ async function getCustomers() {
         else console.error("Error fetching product report:", error);
       } else {
         setProductReportData([]);
-        const { data, error } = await supabase.rpc('get_filtered_transactions', {
+        const { data, error } = await supabase!.rpc('get_filtered_transactions', {
           start_date_in: dateRange.from.toISOString(),
           end_date_in: dateRange.to.toISOString()
         });
@@ -704,7 +704,7 @@ async function getCustomers() {
   useEffect(() => {
     const fetchCategories = async () => {
         if (activeSection === 'reports') {
-            const { data } = await supabase.rpc('get_unique_categories');
+            const { data } = await supabase!.rpc('get_unique_categories');
             if (data) {
                 setCategoryList(data.map((cat: any) => ({ value: cat.kategori, label: cat.kategori })));
             }
@@ -730,10 +730,10 @@ async function getCustomers() {
   let error;
   if (id) {
     // Jika ada ID, lakukan UPDATE
-    ({ error } = await supabase.from('customers').update(customerData).eq('id', id));
+    ({ error } = await supabase!.from('customers').update(customerData).eq('id', id));
   } else {
     // Jika tidak ada ID, lakukan INSERT
-    ({ error } = await supabase.from('customers').insert([customerData]));
+    ({ error } = await supabase!.from('customers').insert([customerData]));
   }
     
 
@@ -770,7 +770,7 @@ const handleEditCustomerClick = (customer: any) => {
       alert("Jumlah stok tidak valid.");
       return;
     }
-    const { error } = await supabase.rpc('add_stock', {
+    const { error } = await supabase!.rpc('add_stock', {
       product_id_to_update: selectedProduct.id,
       quantity_to_add: Number(stockToAdd)
     });
@@ -802,7 +802,7 @@ const handleFormSubmit = async (e: React.FormEvent) => {
   // Jika ada file baru yang diunggah
   if (file) {
     const fileName = `${Date.now()}_${file.name}`;
-    const { data, error: uploadError } = await supabase.storage
+    const { data, error: uploadError } = await supabase!.storage
       .from('product-images')
       .upload(fileName, file);
 
@@ -812,7 +812,7 @@ const handleFormSubmit = async (e: React.FormEvent) => {
     }
 
     // Dapatkan URL publik dari gambar yang baru diunggah
-    const { data: { publicUrl } } = supabase.storage
+    const { data: { publicUrl } } = supabase!.storage
       .from('product-images')
       .getPublicUrl(fileName);
     imageUrl = publicUrl;
@@ -822,11 +822,11 @@ const handleFormSubmit = async (e: React.FormEvent) => {
   
   // Logika simpan data ke tabel (update/insert)
   if (id) {
-    const { error } = await supabase.from('products').update(productData).eq('id', id);
+    const { error } = await supabase!.from('products').update(productData).eq('id', id);
     if (error) alert('Error: ' + error.message);
     else alert('Produk berhasil diperbarui!');
   } else {
-    const { error } = await supabase.from('products').insert([productData]);
+    const { error } = await supabase!.from('products').insert([productData]);
     if (error) alert('Error: ' + error.message);
     else alert('Produk berhasil ditambahkan!');
   }
@@ -852,7 +852,7 @@ const handleEditClick = (product: any) => {
   }
 
   const handleDeleteProduct = async (productId: number) => {
-    const { error } = await supabase.from('products').delete().eq('id', productId)
+    const { error } = await supabase!.from('products').delete().eq('id', productId)
     if (error) {
       alert('Error: ' + error.message)
     } else {
@@ -1009,7 +1009,7 @@ const handleExportPdf = () => {
 
   const refreshProfileData = async () => {
     if (!session) return;
-    const { data: profileData } = await supabase
+    const { data: profileData } = await supabase!
       .from('profiles')
       .select('*')
       .single();
@@ -1019,7 +1019,7 @@ const handleExportPdf = () => {
 const handleSaveTransaction = async (transactionData: TransactionData) => {
   if (!session) return alert("Sesi tidak ditemukan.");
 
-  const { data, error } = await supabase.rpc('create_transaction_and_update_stock', {
+  const { data, error } = await supabase!.rpc('create_transaction_and_update_stock', {
     total_amount_in: transactionData.total_amount,
     items_in: transactionData.items,
     owner_id_in: session.user.id,
@@ -1054,7 +1054,7 @@ const handleSaveTransaction = async (transactionData: TransactionData) => {
       [type === 'in' ? 'quantity_to_add' : 'quantity_to_subtract']: Number(stockChangeData.quantity)
     };
 
-    const { error } = await supabase.rpc(functionName, params);
+    const { error } = await supabase!.rpc(functionName, params);
 
     if (error) {
       alert(`Gagal memproses stok: ${error.message}`);
@@ -2337,7 +2337,7 @@ const renderSettings = () => {
         <span>Pengaturan</span>
       </DropdownMenuItem>
       <DropdownMenuSeparator />
-      <DropdownMenuItem onClick={async () => await supabase.auth.signOut()}>
+      <DropdownMenuItem onClick={async () => await supabase!.auth.signOut()}>
         <LogOut className="mr-2 h-4 w-4" />
         <span>Logout</span>
       </DropdownMenuItem>
@@ -2426,8 +2426,5 @@ const renderSettings = () => {
       </div>
     )
   }
-}
-function handleShortcutClick(arg0: string) {
-  throw new Error("Function not implemented.")
 }
 
