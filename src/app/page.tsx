@@ -935,7 +935,7 @@ const handleExportPdf = () => {
   // --- Bagian Judul ---
   doc.setFont("helvetica", "bold");
   doc.setFontSize(20);
-  doc.text(profile?.store_name || "Laporan KasirKu", pageWidth / 2, 22, { align: "center" });
+  doc.text(profile?.store_name || "Laporan Omzetin", pageWidth / 2, 22, { align: "center" });
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(10);
@@ -2232,7 +2232,7 @@ const renderSettings = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <p className="text-gray-600 mb-2">Versi Aplikasi</p>
-              <p className="text-black font-bold text-lg">KasirKu v2.1.0</p>
+              <p className="text-black font-bold text-lg">Omzetin v2.1.0</p>
             </div>
             <div>
               <p className="text-gray-600 mb-2">Terakhir Update</p>
@@ -2244,7 +2244,7 @@ const renderSettings = () => {
             </div>
             <div>
               <p className="text-gray-600 mb-2">Support</p>
-              <p className="text-black font-bold text-lg">support@kasirku.com</p>
+              <p className="text-black font-bold text-lg">cs.kontak@rsquareidea.my.id</p>
             </div>
           </div>
         </div>
@@ -2275,7 +2275,7 @@ const renderSettings = () => {
           <div className="flex items-center justify-between h-20 px-6 border-b-2 border-gray-200">
             <div className="flex items-center space-x-3">
               <div className="w-10 h-10 bg-black rounded-xl flex items-center justify-center shadow-lg"><span className="text-white font-bold text-lg">R</span></div>
-              <h1 className="text-2xl font-black bg-gradient-to-r from-black via-gray-700 to-orange-500 bg-clip-text text-transparent tracking-tight">KasirKu</h1>
+              <h1 className="text-2xl font-black bg-gradient-to-r from-black via-gray-700 to-orange-500 bg-clip-text text-transparent tracking-tight">Omzetin</h1>
             </div>
             <Button variant="ghost" size="sm" className="lg:hidden" onClick={() => setSidebarOpen(false)}><X className="h-6 w-6" /></Button>
           </div>

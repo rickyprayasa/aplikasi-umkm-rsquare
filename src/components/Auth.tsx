@@ -10,7 +10,7 @@ export default function AuthComponent() {
     <div className="flex items-center justify-center min-h-screen bg-gray-50">
       <div className="w-full max-w-md p-8 space-y-8 bg-white rounded-lg shadow-md">
         <div className="text-center">
-          <h1 className="text-3xl font-black text-gray-900">Selamat Datang di KasirKu</h1>
+          <h1 className="text-3xl font-black text-gray-900">Selamat Datang di Omzetin</h1>
           <p className="mt-2 text-sm text-gray-600">Silakan masuk atau daftar untuk melanjutkan</p>
         </div>
         {supabase && (
