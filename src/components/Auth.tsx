@@ -2,7 +2,7 @@
 "use client"
 
 import { useState } from 'react'
-import { supabase } from '@/lib/supabaseClient'
+import { createClient } from '@/lib/supabaseClient'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -15,13 +15,15 @@ export default function AuthComponent() {
   const [message, setMessage] = useState('')
   const [isSignUp, setIsSignUp] = useState(false)
 
+  const client = createClient()
+
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     setMessage('')
 
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await client.auth.signInWithPassword({
         email,
         password,
       })
@@ -41,7 +43,7 @@ export default function AuthComponent() {
     setMessage('')
 
     try {
-      const { data, error } = await supabase.auth.signUp({
+      const { data, error } = await client.auth.signUp({
         email,
         password,
       })
@@ -60,7 +62,7 @@ export default function AuthComponent() {
     setMessage('')
 
     try {
-      const { data, error } = await supabase.auth.signInWithOAuth({
+      const { data, error } = await client.auth.signInWithOAuth({
         provider: 'google',
       })
 
