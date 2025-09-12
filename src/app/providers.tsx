@@ -1,7 +1,7 @@
 // src/app/providers.tsx
 "use client"
 import { ThemeProvider } from 'next-themes'
-import { SessionProvider } from '@supabase/auth-helpers-react'
+import { SessionContextProvider } from '@supabase/auth-helpers-react'
 import { createBrowserClient } from '@supabase/ssr'
 
 export function Providers({ children }: { children: React.ReactNode }) {
@@ -11,10 +11,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
   )
 
   return (
-    <SessionProvider supabaseClient={supabase}>
+    <SessionContextProvider supabaseClient={supabase}>
       <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
         {children}
       </ThemeProvider>
-    </SessionProvider>
+    </SessionContextProvider>
   )
 }

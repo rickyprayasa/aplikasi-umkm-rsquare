@@ -31,7 +31,7 @@ export default function AuthComponent() {
       if (error) throw error
       setMessage('Berhasil masuk!')
     } catch (error) {
-      setMessage(error.message || 'Terjadi kesalahan saat masuk')
+      setMessage(error instanceof Error ? error.message : 'Terjadi kesalahan saat masuk')
     } finally {
       setLoading(false)
     }
@@ -51,7 +51,7 @@ export default function AuthComponent() {
       if (error) throw error
       setMessage('Berhasil mendaftar! Silakan cek email Anda untuk verifikasi.')
     } catch (error) {
-      setMessage(error.message || 'Terjadi kesalahan saat mendaftar')
+      setMessage(error instanceof Error ? error.message : 'Terjadi kesalahan saat mendaftar')
     } finally {
       setLoading(false)
     }
@@ -68,7 +68,7 @@ export default function AuthComponent() {
 
       if (error) throw error
     } catch (error) {
-      setMessage(error.message || 'Terjadi kesalahan saat masuk dengan Google')
+      setMessage(error instanceof Error ? error.message : 'Terjadi kesalahan saat masuk dengan Google')
       setLoading(false)
     }
   }

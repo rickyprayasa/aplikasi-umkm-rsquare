@@ -10,17 +10,7 @@ export const createClient = () => createBrowserClient(
 )
 
 // Server client for server components
-export const createServerClient = () => createServerComponentClient({
-  cookies,
-  cookieOptions: {
-    name: 'sb-[project-ref]',
-    domain: process.env.NEXT_PUBLIC_SUPABASE_URL!.replace('https://', ''),
-    maxAge: 60 * 60 * 24 * 365, // 1 year
-    secure: process.env.NODE_ENV === 'production'
-  },
-  supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-})
+export const createServerClient = () => createServerComponentClient({ cookies })
 
 // Debug log for production validation (client-side only, after client creation)
 if (typeof window !== 'undefined') {
@@ -32,3 +22,5 @@ if (typeof window !== 'undefined') {
     hasOAuth: !!client.auth.signInWithOAuth
   });
 }
+
+export const supabase = createClient()
