@@ -18,8 +18,8 @@ if (typeof window !== 'undefined') {
   console.log('Supabase Client Debug:', {
     url: process.env.NEXT_PUBLIC_SUPABASE_URL ? 'URL defined' : 'URL undefined',
     key: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ? 'Key defined (length: ' + process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY.length + ')' : 'Key undefined',
-    hasAuth: !!client.auth.signInWithPassword,
-    hasOAuth: !!client.auth.signInWithOAuth
+    hasAuth: !!(client.auth && typeof client.auth.signInWithPassword === 'function'),
+    hasOAuth: !!(client.auth && typeof client.auth.signInWithOAuth === 'function')
   });
 }
 
