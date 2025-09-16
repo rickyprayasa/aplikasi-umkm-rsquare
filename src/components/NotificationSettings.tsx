@@ -1,3 +1,4 @@
+"use client";
 import React, { useState, FormEvent, ChangeEvent } from 'react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { ArrowLeft, Loader2, Save } from 'lucide-react';

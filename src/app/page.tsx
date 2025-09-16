@@ -1,4 +1,3 @@
-// src/app/page.tsx
 "use client"
 
 import { useState, useEffect } from "react"
@@ -26,10 +25,10 @@ import { ThemeSwitcher } from "@/components/ThemeSwitcher" // Import baru
 import { Globe } from "lucide-react" // Import baru
 import { Store } from "lucide-react" // Import baru
 import { LogOut } from "lucide-react" 
-import * as XLSX from 'xlsx'; // <-- Impor untuk Excel
 import jsPDF from 'jspdf';     // <-- Impor untuk PDF
 import autoTable from 'jspdf-autotable';
 import UserProfile from '@/components/UserProfile';
+import PaymentSettings from '@/components/PaymentSettings';
 import StoreProfile from '@/components/StoreProfile';
 import SecuritySettings from '@/components/SecuritySettings';
 import LoyaltySettings from '@/components/LoyaltySettings';
@@ -40,6 +39,7 @@ import { useMemo } from 'react';
 import { Textarea } from "@/components/ui/textarea";
 import Image from 'next/image';
 import AnimatedDonutChartLogo from '../components/AnimatedDonutChartLogo';
+import * as XLSX from 'xlsx'; // <-- Impor untuk Excel
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -61,6 +61,7 @@ type TransactionData = {
   items: any[]; // Anda bisa buat tipe lebih spesifik jika mau
   total_amount: number;
   customer_id: number | null; // customer_id bisa berupa angka atau null
+  payment_method?: string | undefined; // Tambahkan property payment_method
 };
 
 type TransactionReportItem = {
@@ -73,7 +74,15 @@ type TransactionReportItem = {
   payment_method_name: string | null;
 };
 
+
 export default function HomePage() {
+
+  const [paymentMethods, setPaymentMethods] = useState([
+    { id: 'cash', name: 'Tunai', enabled: true },
+    { id: 'transfer', name: 'Transfer Bank', enabled: true },
+    { id: 'qris', name: 'QRIS (Manual)', enabled: false },
+    { id: 'ewallet', name: 'E-Wallet (Manual)', enabled: false },
+  ]);
   // ...existing state...
   // State pengaturan notifikasi
   const [notifEnabled, setNotifEnabled] = useState(true);
@@ -185,7 +194,7 @@ export default function HomePage() {
 }, [viewingCustomer]);
 
 const handleResetFilters = () => {
-  // Reset tanggal ke default (misalnya, bulan ini)
+  // Reset tanggal ke default (misal, bulan ini)
   const start = new Date(); start.setDate(1); start.setHours(0,0,0,0);
   const end = new Date(); end.setHours(23,59,59,999);
   setDateRange({ from: start, to: end });
@@ -531,7 +540,7 @@ async function fetchDashboardData(page = 1) {
   ] = await Promise.all([
     supabase!.rpc('get_restock_recommendations'),
     supabase!.rpc('get_dashboard_comparison'),
-    supabase!.from('transactions').select('*', { count: 'exact' }).order('created_at', { ascending: false }).range((page - 1) * ITEMS_PER_PAGE, (page - 1) * ITEMS_PER_PAGE + ITEMS_PER_PAGE - 1)
+  supabase!.from('transactions').select('*', { count: 'exact' }).order('created_at', { ascending: false }).range((page - 1) * ITEMS_PER_PAGE, (page - 1) * ITEMS_PER_PAGE + ITEMS_PER_PAGE - 1)
   ]);
 
   // Memperbarui state dengan data yang sudah diambil
@@ -1038,32 +1047,63 @@ const handleExportPdf = () => {
   };
 
 const handleSaveTransaction = async (transactionData: TransactionData) => {
-  if (!session) return alert("Sesi tidak ditemukan.");
-
-  const { data, error } = await supabase!.rpc('create_transaction_and_update_stock', {
-    total_amount_in: transactionData.total_amount,
-    items_in: transactionData.items,
-    owner_id_in: session.user.id,
-    customer_id_in: transactionData.customer_id
-  });
-
-  if (error) {
-    alert("Gagal menyimpan transaksi: " + error.message);
+  if (!session) {
+    alert("Sesi tidak ditemukan.");
     return null;
-  } 
-  
-  if (data) {
-    // PERBAIKAN: Buka dialog preview struk setelah berhasil
-    setSelectedTransaction(data);
-    setIsPreviewOpen(true);
-    
-    // Refresh data di background
-    fetchDashboardData(); 
-    getProducts();
-    refreshProfileData();
   }
-  return data; 
-};
+
+  console.log('handleSaveTransaction: input', transactionData);
+  const { data, error } = await supabase!.rpc('create_transaction_and_update_stock', {
+          total_amount_in: transactionData.total_amount,
+          items_in: transactionData.items,
+          owner_id_in: session.user.id,
+          customer_id_in: transactionData.customer_id,
+          payment_method_in: transactionData.payment_method || null
+        });
+
+        if (error) {
+          alert("Gagal menyimpan transaksi: " + (error?.message ?? "Unknown error"));
+          return null;
+        }
+
+        // Construct reliable transaction data
+        const now = new Date().toISOString();
+        const nomorFaktur = `OMZ-${now.slice(0,10).replace(/-/g,'')}-${data?.id || 'NEW'}`;
+        let latestTransaction: TransactionData & { id?: any; created_at?: string; nomor_faktur?: string; } = {
+          ...transactionData,
+          id: data?.id || null,
+          created_at: now,
+          nomor_faktur: nomorFaktur,
+          payment_method: transactionData.payment_method ?? undefined,
+          items: transactionData.items.map(item => ({
+            ...item,
+            quantity: item.quantity,
+            nama_produk: item.nama_produk,
+            harga: item.harga
+          }))
+        };
+
+        // Optional: Try to fetch full data for additional fields if needed
+        if (data?.id) {
+          const { data: trans } = await supabase!.from('transactions').select('*').eq('id', data.id).single();
+          if (trans) {
+            const cleanedTrans = { ...trans };
+            if (cleanedTrans.payment_method === null) {
+              cleanedTrans.payment_method = undefined;
+            }
+            latestTransaction = { ...latestTransaction, ...cleanedTrans };
+          }
+        }
+
+        setSelectedTransaction(latestTransaction);
+        setIsPreviewOpen(true);
+        fetchDashboardData();
+        getProducts();
+        refreshProfileData();
+        setCustomerHistory([]);
+
+        return latestTransaction;
+      };
 
 
   const handleStockChange = async (type: 'in' | 'out') => {
@@ -1093,41 +1133,6 @@ const handleSaveTransaction = async (transactionData: TransactionData) => {
   ]
   
 const renderDashboard = () => {
-  const dynamicStatsData = [
-    { 
-      key: "revenue",
-      title: "Pendapatan Hari Ini", 
-      value: loadingDashboard ? '...' : `Rp ${dashboardStats.revenue.toLocaleString('id-ID')}`, 
-      icon: DollarSign, 
-      bgColor: "bg-orange-500", 
-      iconColor: "text-white",
-      comparisonValue: loadingDashboard ? '...' : `Rp ${(comparisonData?.yesterday_revenue || 0).toLocaleString('id-ID')}`,
-      isUp: dashboardStats.revenue > (comparisonData?.yesterday_revenue || 0),
-      comparisonText: "dari kemarin"
-    },
-    { 
-      key: "transactions",
-      title: "Transaksi Sukses", 
-      value: loadingDashboard ? '...' : dashboardStats.count.toString(), 
-      icon: Receipt, 
-      bgColor: "bg-gray-500", 
-      iconColor: "text-white",
-      comparisonValue: loadingDashboard ? '...' : (comparisonData?.yesterday_count || 0),
-      isUp: dashboardStats.count > (comparisonData?.yesterday_count || 0),
-      comparisonText: "transaksi kemarin"
-    },
-    { 
-      key: "bestseller",
-      title: "Produk Terlaris Hari Ini", 
-      value: loadingDashboard ? '...' : bestSeller.name, 
-      icon: Star, 
-      bgColor: "bg-black", 
-      iconColor: "text-white",
-      comparisonValue: loadingDashboard ? '...' : (comparisonData?.yesterday_bestseller?.name || '-'),
-      isUp: null, // No up/down for bestseller
-      comparisonText: "kemarin"
-    },
-  ];
 
   return (
     <div className="space-y-10">
@@ -1209,11 +1214,14 @@ const renderDashboard = () => {
             </DialogTrigger>
             <DialogContent className="sm:max-w-6xl bg-white"><DialogHeader><DialogTitle className="text-black">Buat Transaksi Baru</DialogTitle><DialogDescription>Pilih produk dan tentukan jumlahnya.</DialogDescription></DialogHeader>
             <NewTransactionDialog 
-              products={products} 
-              customers={customers} 
-              profile={profile} // <-- Teruskan data profil
-              onSave={handleSaveTransaction} 
-              onClose={() => setIsTransactionDialogOpen(false)} /></DialogContent>
+              products={products}
+              customers={customers}
+              profile={profile}
+              paymentMethods={paymentMethods.filter(m => m.enabled)}
+              onSave={handleSaveTransaction}
+              onClose={() => setIsTransactionDialogOpen(false)}
+              onSuccess={() => { fetchDashboardData(); getProducts(); refreshProfileData(); }} />
+            </DialogContent>
           </Dialog>
           <Button onClick={() => setActiveSection('inventory')} variant="outline" className="border-2 border-orange-500 text-orange-600 hover:bg-orange-50 px-8 py-6 text-lg font-bold rounded-2xl transition-all duration-300 shadow-lg hover:shadow-xl hover:-translate-y-1 bg-transparent" size="lg"><Package className="w-5 h-5 mr-3" />Kelola Stok</Button>
           <Button onClick={() => setActiveSection('reports')} variant="outline" className="border-2 border-gray-500 text-gray-600 hover:bg-gray-50 px-8 py-6 text-lg font-bold rounded-2xl transition-all duration-300 shadow-lg hover:shadow-xl hover:-translate-y-1 bg-transparent" size="lg"><FileText className="w-5 h-5 mr-3" />Lihat Laporan</Button>
@@ -1276,7 +1284,7 @@ const renderDashboard = () => {
 
     <div className="bg-white rounded-2xl border-2 border-gray-200 shadow-2xl relative overflow-hidden">
       <div className="p-8">
-        <h3 className="text-2xl font-bold text-black tracking-tight mb-6">Aktivitas Terbaru</h3>
+        <h3 className="text-2xl font-bold text-black mb-6 tracking-tight">Aktivitas Terbaru</h3>
         <div className="overflow-y-auto max-h-[340px] relative">
           <Table>
             <TableHeader>
@@ -1284,6 +1292,7 @@ const renderDashboard = () => {
                 <TableHead>Waktu</TableHead>
                 <TableHead>ID Transaksi</TableHead>
                 <TableHead>Detail Item</TableHead>
+                <TableHead>Metode Pembayaran</TableHead>
                 <TableHead className="text-right">Total</TableHead>
                 <TableHead className="text-right">Aksi</TableHead>
               </TableRow>
@@ -1307,6 +1316,7 @@ const renderDashboard = () => {
         </TableCell>
         <TableCell>{t.nomor_faktur || `#${t.id}`}</TableCell>
         <TableCell>{t.items.map((item: any) => `${item.nama_produk} (x${item.quantity})`).join(', ')}</TableCell>
+        <TableCell>{t.payment_method || '-'}</TableCell>
         <TableCell className="text-right font-bold">Rp {t.total_amount.toLocaleString('id-ID')}</TableCell>
         <TableCell className="text-right"> {/* <-- SEL BARU */}
         <Button variant="outline" size="sm" onClick={() => handleReprintClick(t)} className="text-purple-600 border-purple-300 hover:bg-purple-50 hover:text-purple-700">
@@ -1644,7 +1654,7 @@ const renderCustomers = () => {
       <div className="bg-white rounded-2xl border-2 border-gray-200 shadow-2xl">
         <div className="p-8">
           <h4 className="text-xl font-bold text-black mb-6">Riwayat Transaksi</h4>
-          <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Waktu</TableHead><TableHead>ID Transaksi</TableHead><TableHead>Detail Item</TableHead><TableHead className="text-right">Total</TableHead></TableRow></TableHeader><TableBody>{loadingHistory ? (<TableRow><TableCell colSpan={4} className="text-center">Memuat riwayat...</TableCell></TableRow>) : customerHistory.length === 0 ? (<TableRow><TableCell colSpan={4} className="text-center">Pelanggan ini belum memiliki transaksi.</TableCell></TableRow>) : (customerHistory.map(t => (<TableRow key={t.id}><TableCell>{new Date(t.created_at).toLocaleString('id-ID')}</TableCell><TableCell>{t.nomor_faktur || `#${t.id}`}</TableCell><TableCell>{t.items.map((item: any) => `${item.nama_produk} (x${item.quantity})`).join(', ')}</TableCell><TableCell className="text-right font-bold">Rp {t.total_amount.toLocaleString('id-ID')}</TableCell></TableRow>)))}</TableBody></Table></div>
+          <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Waktu</TableHead><TableHead>ID Transaksi</TableHead><TableHead>Detail Item</TableHead><TableHead>Metode Pembayaran</TableHead><TableHead className="text-right">Total</TableHead></TableRow></TableHeader><TableBody>{loadingHistory ? (<TableRow><TableCell colSpan={5} className="text-center">Memuat riwayat...</TableCell></TableRow>) : customerHistory.length === 0 ? (<TableRow><TableCell colSpan={5} className="text-center">Pelanggan ini belum memiliki transaksi.</TableCell></TableRow>) : (customerHistory.map(t => (<TableRow key={t.id}><TableCell>{new Date(t.created_at).toLocaleString('id-ID')}</TableCell><TableCell>{t.nomor_faktur || `#${t.id}`}</TableCell><TableCell>{t.items.map((item: any) => `${item.nama_produk} (x${item.quantity})`).join(', ')}</TableCell><TableCell>{t.payment_method || '-'}</TableCell><TableCell className="text-right font-bold">Rp {t.total_amount.toLocaleString('id-ID')}</TableCell></TableRow>)))}</TableBody></Table></div>
         </div>
       </div>
     </div>
@@ -1871,7 +1881,7 @@ const renderReports = () => {
             // FITUR BARU: Judul dinamis dengan tanggal
             setReportTitle(`Ringkasan Bulan Ini (${format(start, "MMMM yyyy")})`);
             setDateRange({ from: start, to: end });
-          }} className="bg-white border-2 border-gray-200 shadow-xl hover:shadow-2xl transition-all duration-300 cursor-pointer hover:border-black"><CardContent className="p-6 text-center"><TrendingUp className="w-12 h-12 text-black mx-auto mb-4" /><h4 className="font-bold text-lg text-black mb-2">Laporan Bulanan</h4><p className="text-gray-600 text-sm">Performa bulan ini</p></CardContent></Card>
+          }} className="bg-white border-2 border-gray-200 shadow-xl hover:shadow-2xl transition-all duration-300 cursor-pointer hover:border-blue-400"><CardContent className="p-6 text-center"><TrendingUp className="w-12 h-12 text-black mx-auto mb-4" /><h4 className="font-bold text-lg text-black mb-2">Laporan Bulanan</h4><p className="text-gray-600 text-sm">Performa bulan ini</p></CardContent></Card>
         <Card onClick={() => {
             setSelectedCategory(null);
             setActiveReportType('products');
@@ -2143,19 +2153,18 @@ const renderSettings = () => {
          />;
 
     case 'notification':
-    return <NotificationSettings 
-            profile={profile} 
-            notifEnabled={notifEnabled}
-            notifSound={notifSound}
-            notifType={notifType}
-            onSave={handleSaveNotifSettings}
-            onBack={() => setActiveSetting('main')} 
-            onProfileUpdate={refreshProfileData} // <-- TAMBAHKAN INI
-         />;
-
-    // Tambahkan case lain untuk pengaturan tambahan di sini      
-
-    default: // Tampilan utama pengaturan
+      return <NotificationSettings 
+        profile={profile} 
+        notifEnabled={notifEnabled}
+        notifSound={notifSound}
+        notifType={notifType}
+        onSave={handleSaveNotifSettings}
+        onBack={() => setActiveSetting('main')} 
+        onProfileUpdate={refreshProfileData}
+      />;
+    case 'payment':
+      return <PaymentSettings onBack={() => setActiveSetting('main')} />;
+    default:
       return (
         <div className="space-y-8">
           <h3 className="text-2xl font-bold text-black tracking-tight">Pengaturan Sistem</h3>
@@ -2181,7 +2190,7 @@ const renderSettings = () => {
                 <p className="text-gray-600 text-sm">Konfigurasi printer kasir</p>
               </CardContent>
             </Card>
-            <Card className="bg-white border-2 border-gray-200 shadow-xl hover:shadow-2xl transition-all duration-300 cursor-pointer">
+            <Card onClick={() => setActiveSetting('payment')} className="bg-white border-2 border-gray-200 shadow-xl hover:shadow-2xl transition-all duration-300 cursor-pointer hover:border-orange-500">
               <CardContent className="p-6 text-center">
                 <CreditCard className="w-12 h-12 text-black mx-auto mb-4" />
                 <h4 className="font-bold text-lg text-black mb-2">Metode Pembayaran</h4>
@@ -2446,4 +2455,5 @@ const renderSettings = () => {
     )
   }
 }
+
 

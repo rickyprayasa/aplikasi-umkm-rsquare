@@ -1,4 +1,3 @@
-
 "use client";
 import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
@@ -9,25 +8,42 @@ import { Label } from "@/components/ui/label";
 import { supabase } from '@/lib/supabaseClient';
 import { ScrollArea } from "@/components/ui/scroll-area";
 import Image from 'next/image';
-import ReceiptPreviewDialog from "./ReceiptPreviewDialog";
 import { cn } from "@/lib/utils";
 
 interface Product { id: number; nama_produk: string; harga: number; stok: number; kategori: string; image_url?: string; }
 interface CartItem extends Product { quantity: number; }
 interface Customer { id: number; name: string; }
-interface TransactionData { items: CartItem[]; total_amount: number; customer_id: number | null; }
+interface TransactionData { 
+  items: CartItem[]; 
+  total_amount: number; 
+  customer_id: number | null; 
+  payment_method?: string;
+  customer?: Customer | null;
+  metadata?: {
+    applied_discount?: boolean;
+  };
+}
+
+interface PaymentMethod {
+  id: string;
+  name: string;
+  enabled: boolean;
+}
 
 interface NewTransactionDialogProps {
   products: Product[];
   customers: Customer[];
-  profile: { id: string; store_name?: string; store_address?: string; store_phone?: string; loyalty_enabled?: boolean; loyalty_threshold?: number; loyalty_discount_percent?: number; };
+  profile: { id: string; store_name?: string; store_address?: string; store_phone?: string; loyalty_enabled?: boolean; loyalty_threshold?: number; loyalty_discount_percent?: number; printer_mode?: string };
+  paymentMethods: PaymentMethod[];
   onSave: (transactionData: TransactionData) => Promise<TransactionData | null>;
   onClose: () => void;
+  onSuccess?: () => void;
 }
+
 
 const LOW_STOCK_THRESHOLD = 15;
 
-export default function NewTransactionDialog({ products, customers, profile, onSave, onClose }: NewTransactionDialogProps) {
+export default function NewTransactionDialog({ products, customers, profile, paymentMethods, onSave, onClose, onSuccess }: NewTransactionDialogProps) {
   // --- State Management ---
   const [cart, setCart] = useState<CartItem[]>([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
@@ -35,7 +51,7 @@ export default function NewTransactionDialog({ products, customers, profile, onS
   const [customerTransactionCount, setCustomerTransactionCount] = useState(0);
   const [searchTerm, setSearchTerm] = useState("");
   const [activeCategory, setActiveCategory] = useState("Semua");
-  const [transactionSuccessData, setTransactionSuccessData] = useState<TransactionData | null>(null);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>(paymentMethods.find(m => m.enabled)?.id || 'cash');
 
   // --- Logika Kalkulasi ---
   const { subTotal, discountApplied, total } = useMemo(() => {
@@ -100,56 +116,56 @@ export default function NewTransactionDialog({ products, customers, profile, onS
   };
 
   const resetDialog = () => {
+    // Reset all form state
     setCart([]);
     setSelectedCustomerId(null);
-    setTransactionSuccessData(null);
+    setSelectedPaymentMethod(paymentMethods.find(m => m.enabled)?.id || 'cash');
+    // Reset search filters
+    setSearchTerm('');
+    setActiveCategory('Semua');
   };
 
   const handleSave = async () => {
     if (cart.length === 0) return alert("Keranjang tidak boleh kosong.");
-    setIsSaving(true);
-    const transactionData: TransactionData = {
-      total_amount: total,
-      customer_id: selectedCustomerId ? Number(selectedCustomerId) : null,
-      items: cart.map(item => ({
-        id: item.id,
-        nama_produk: item.nama_produk,
-        quantity: item.quantity,
-        harga: item.harga,
-        kategori: item.kategori,
-        stok: item.stok
-      }))
-    };
-    const result = await onSave(transactionData);
-    if (result) {
-        setTransactionSuccessData(result);
+    
+    try {
+      setIsSaving(true);
+      const selectedMethodObj = paymentMethods.find(m => m.id === selectedPaymentMethod);
+      const transactionData: TransactionData = {
+        total_amount: total,
+        customer_id: selectedCustomerId ? Number(selectedCustomerId) : null,
+        items: cart.map(item => ({
+          id: item.id,
+          nama_produk: item.nama_produk,
+          quantity: item.quantity,
+          harga: item.harga,
+          kategori: item.kategori,
+          stok: item.stok
+        })),
+        payment_method: selectedMethodObj ? selectedMethodObj.name : selectedPaymentMethod
+      };
+      
+      const result = await onSave(transactionData);
+      if (result) {
+        // Notify parent component
+        if (onSuccess) {
+          onSuccess();
+        }
+
+        // Close the dialog to trigger parent's preview
+        onClose();
+        resetDialog();
+      }
+    } catch (error) {
+      console.error('Error saving transaction:', error);
+      alert('Gagal menyimpan transaksi. Silakan coba lagi.');
+    } finally {
+      setIsSaving(false);
     }
-    setIsSaving(false);
   };
 
   const customerOptions = customers.map((c: Customer) => ({ value: c.id.toString(), label: c.name }));
-
-  // --- Tampilan setelah transaksi berhasil ---
-  if (transactionSuccessData) {
-    return (
-      <div className="flex flex-col items-center justify-center p-4 h-[75vh]">
-        <h3 className="text-2xl font-semibold text-center text-green-600 mb-4">Transaksi Berhasil!</h3>
-        <p className="text-center text-muted-foreground mb-4">Silakan cetak struk jika diperlukan.</p>
-        <div className="flex justify-center gap-4">
-          <Button onClick={resetDialog} variant="outline" size="lg">Buat Transaksi Baru</Button>
-          <Button onClick={onClose} size="lg">Tutup</Button>
-        </div>
-        {transactionSuccessData && (
-          <ReceiptPreviewDialog 
-            isOpen={true} 
-            onClose={resetDialog}
-            transaction={transactionSuccessData as any}
-            profile={profile}
-          />
-        )}
-      </div>
-    );
-  }
+  const enabledMethods = paymentMethods.filter(m => m.enabled);
 
   // --- Tampilan utama form transaksi ---
   return (
@@ -209,6 +225,16 @@ export default function NewTransactionDialog({ products, customers, profile, onS
           <Combobox value={selectedCustomerId} options={customerOptions} onSelect={setSelectedCustomerId} placeholder="Pilih pelanggan..."/>
         </div>
         <hr className="my-4 flex-shrink-0"/>
+        <Label>Metode Pembayaran</Label>
+        <select
+          className="w-full border rounded-md p-2 mb-4"
+          value={selectedPaymentMethod}
+          onChange={e => setSelectedPaymentMethod(e.target.value)}
+        >
+          {enabledMethods.map(method => (
+            <option key={method.id} value={method.id}>{method.name}</option>
+          ))}
+        </select>
         <h3 className="font-semibold mb-2 flex-shrink-0">Keranjang</h3>
         <ScrollArea className="flex-grow">
             {cart.length === 0 ? <p className="text-sm text-center text-muted-foreground py-10">Keranjang kosong</p> : 
