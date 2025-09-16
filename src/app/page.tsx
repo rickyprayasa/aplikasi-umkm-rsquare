@@ -35,6 +35,7 @@ import SecuritySettings from '@/components/SecuritySettings';
 import LoyaltySettings from '@/components/LoyaltySettings';
 import PrinterSettings from '@/components/PrinterSettings';
 import { Progress } from "@/components/ui/progress";
+import NotificationSettings from '@/components/NotificationSettings';
 import { useMemo } from 'react';
 import { Textarea } from "@/components/ui/textarea";
 import Image from 'next/image';
@@ -73,6 +74,25 @@ type TransactionReportItem = {
 };
 
 export default function HomePage() {
+  // ...existing state...
+  // State pengaturan notifikasi
+  const [notifEnabled, setNotifEnabled] = useState(true);
+  const [notifSound, setNotifSound] = useState(false);
+  const [notifType, setNotifType] = useState('all');
+  const [savingNotif, setSavingNotif] = useState(false);
+  const handleSaveNotifSettings = async () => {
+    setSavingNotif(true);
+    // Simpan ke Supabase (misal ke tabel profiles)
+    if (session && supabase) {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ notif_enabled: notifEnabled, notif_sound: notifSound, notif_type: notifType })
+        .eq('id', session.user.id);
+      if (!error) alert('Pengaturan notifikasi berhasil disimpan!');
+      else alert('Gagal menyimpan pengaturan: ' + error.message);
+    }
+    setSavingNotif(false);
+  };
   const [session, setSession] = useState<Session | null>(null)
   const [isMounted, setIsMounted] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -2122,45 +2142,44 @@ const renderSettings = () => {
             onProfileUpdate={refreshProfileData} // <-- TAMBAHKAN INI
          />;
 
+    case 'notification':
+    return <NotificationSettings 
+            profile={profile} 
+            notifEnabled={notifEnabled}
+            notifSound={notifSound}
+            notifType={notifType}
+            onSave={handleSaveNotifSettings}
+            onBack={() => setActiveSetting('main')} 
+            onProfileUpdate={refreshProfileData} // <-- TAMBAHKAN INI
+         />;
+
+    // Tambahkan case lain untuk pengaturan tambahan di sini      
+
     default: // Tampilan utama pengaturan
       return (
         <div className="space-y-8">
           <h3 className="text-2xl font-bold text-black tracking-tight">Pengaturan Sistem</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            
-            <Card 
-              onClick={() => setActiveSetting('profile')} 
-              className="bg-white border-2 border-gray-200 shadow-xl hover:shadow-2xl transition-all duration-300 cursor-pointer hover:border-orange-500"
-            >
+            <Card onClick={() => setActiveSetting('profile')} className="bg-white border-2 border-gray-200 shadow-xl hover:shadow-2xl transition-all duration-300 cursor-pointer hover:border-orange-500">
               <CardContent className="p-6 text-center">
                 <User className="w-12 h-12 text-orange-500 mx-auto mb-4" />
                 <h4 className="font-bold text-lg text-black mb-2">Akun</h4>
                 <p className="text-gray-600 text-sm">Lihat detail akun Anda</p>
               </CardContent>
             </Card>
-
-            {/* --- KARTU BARU UNTUK PROFIL TOKO --- */}
-            <Card 
-              onClick={() => setActiveSetting('store')} 
-              className="bg-white border-2 border-gray-200 shadow-xl hover:shadow-2xl transition-all duration-300 cursor-pointer hover:border-orange-500"
-            >
+            <Card onClick={() => setActiveSetting('store')} className="bg-white border-2 border-gray-200 shadow-xl hover:shadow-2xl transition-all duration-300 cursor-pointer hover:border-orange-500">
               <CardContent className="p-6 text-center">
                 <Store className="w-12 h-12 text-orange-500 mx-auto mb-4" />
                 <h4 className="font-bold text-lg text-black mb-2">Profil Toko</h4>
                 <p className="text-gray-600 text-sm">Atur nama & alamat toko</p>
               </CardContent>
             </Card>
-
-            {/* Kartu-kartu lainnya masih statis untuk saat ini */}
-            <Card 
-              onClick={() => setActiveSetting('printer')} // <-- TAMBAHKAN INI
-              className="bg-white border-2 border-gray-200 shadow-xl hover:shadow-2xl transition-all duration-300 cursor-pointer hover:border-orange-500"
-            >
+            <Card onClick={() => setActiveSetting('printer')} className="bg-white border-2 border-gray-200 shadow-xl hover:shadow-2xl transition-all duration-300 cursor-pointer hover:border-orange-500">
               <CardContent className="p-6 text-center">
-              <Printer className="w-12 h-12 text-gray-500 mx-auto mb-4" />
-              <h4 className="font-bold text-lg text-black mb-2">Pengaturan Printer</h4>
-              <p className="text-gray-600 text-sm">Konfigurasi printer kasir</p>
-            </CardContent>
+                <Printer className="w-12 h-12 text-gray-500 mx-auto mb-4" />
+                <h4 className="font-bold text-lg text-black mb-2">Pengaturan Printer</h4>
+                <p className="text-gray-600 text-sm">Konfigurasi printer kasir</p>
+              </CardContent>
             </Card>
             <Card className="bg-white border-2 border-gray-200 shadow-xl hover:shadow-2xl transition-all duration-300 cursor-pointer">
               <CardContent className="p-6 text-center">
@@ -2176,24 +2195,21 @@ const renderSettings = () => {
                 <p className="text-gray-600 text-sm">Password & keamanan akun</p>
               </CardContent>
             </Card>
-            <Card 
-              onClick={() => setActiveSetting('loyalty')} 
-              className="bg-white border-2 border-gray-200 shadow-xl hover:shadow-2xl transition-all duration-300 cursor-pointer hover:border-orange-500"
-            >
+            <Card onClick={() => setActiveSetting('loyalty')} className="bg-white border-2 border-gray-200 shadow-xl hover:shadow-2xl transition-all duration-300 cursor-pointer hover:border-orange-500">
               <CardContent className="p-6 text-center">
                 <Gift className="w-12 h-12 text-orange-500 mx-auto mb-4" />
                 <h4 className="font-bold text-lg text-black mb-2">Program Loyalitas</h4>
                 <p className="text-gray-600 text-sm">Atur reward pelanggan</p>
               </CardContent>
             </Card>
-        <Card className="bg-white border-2 border-gray-200 shadow-xl hover:shadow-2xl transition-all duration-300 cursor-pointer">
-          <CardContent className="p-6 text-center">
-            <Bell className="w-12 h-12 text-black mx-auto mb-4" />
-            <h4 className="font-bold text-lg text-black mb-2">Notifikasi</h4>
-            <p className="text-gray-600 text-sm">Pengaturan peringatan</p>
-          </CardContent>
-        </Card>
-      </div>
+            <Card onClick={() => setActiveSetting('notification')} className="bg-white border-2 border-gray-200 shadow-xl hover:shadow-2xl transition-all duration-300 cursor-pointer hover:border-orange-500">
+              <CardContent className="p-6 text-center">
+                <Bell className="w-12 h-12 text-black mx-auto mb-4" />
+                <h4 className="font-bold text-lg text-black mb-2">Notifikasi</h4>
+                <p className="text-gray-600 text-sm">Pengaturan peringatan</p>
+              </CardContent>
+            </Card>
+          </div>
         </div>
       );
   }
